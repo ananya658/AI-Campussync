@@ -21,6 +21,6 @@ ENV PORT=8000
 
 EXPOSE 8000
 
-# Run uvicorn server
-CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run uvicorn server with dynamic port support (Render / Cloud Run / Docker)
+CMD ["sh", "-c", "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
