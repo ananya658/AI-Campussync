@@ -3,15 +3,10 @@ import {
   IssueReport, NotificationItem, AuditLogItem, AISearchResponse, AnalyticsSummary 
 } from '../types';
 
-const configuredApiBase = import.meta.env.VITE_API_BASE_URL?.trim();
-const defaultApiBase = import.meta.env.PROD
-  ? 'https://campussync-api.onrender.com/api'
-  : '/api';
-const selectedApiBase = (
-  configuredApiBase && (!import.meta.env.PROD || /^https?:\/\//i.test(configuredApiBase))
-    ? configuredApiBase
-    : defaultApiBase
-).replace(/\/+$/, '');
+const configuredApiBase = import.meta.env.DEV
+  ? import.meta.env.VITE_API_BASE_URL?.trim()
+  : undefined;
+const selectedApiBase = (configuredApiBase || '/api').replace(/\/+$/, '');
 const API_BASE = /^https?:\/\//i.test(selectedApiBase) && !selectedApiBase.endsWith('/api')
   ? `${selectedApiBase}/api`
   : selectedApiBase;
