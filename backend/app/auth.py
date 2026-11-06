@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 import jwt
 import bcrypt
 from backend.app.config import settings
+from backend.app.time_utils import utcnow
 
 def hash_password(password: str) -> str:
     """Hash a password using direct bcrypt with salt."""
@@ -24,9 +25,9 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     """Generate JWT access token."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)

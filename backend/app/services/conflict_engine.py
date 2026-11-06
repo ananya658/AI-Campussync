@@ -8,6 +8,56 @@ from backend.app.models import (
 
 class ConflictEngine:
     @staticmethod
+    def _purpose_is_permitted(purpose: Optional[str], permitted_uses: Optional[str]) -> bool:
+        if not purpose or not permitted_uses:
+            return True
+
+        use_entries = [
+            entry.strip().lower()
+            for entry in permitted_uses.split(",")
+            if entry.strip()
+        ]
+        code = purpose.strip().upper()
+
+        def contains_any(*terms: str) -> bool:
+            return any(term in entry for entry in use_entries for term in terms)
+
+        if code in {"MINOR_EXAM", "MINOR_EXAMINATION"}:
+            return contains_any("minor exam", "minor examination", "minor test") or any(
+                entry in {"exam", "exams", "examination", "examinations"}
+                for entry in use_entries
+            )
+        if code in {"MAJOR_EXAM", "MAJOR_EXAMINATION"}:
+            return contains_any("major exam", "major examination") or any(
+                entry in {"exam", "exams", "examination", "examinations"}
+                for entry in use_entries
+            )
+        if code in {"EXAM", "EXAMINATION"}:
+            return contains_any("exam", "examination")
+        if code == "PRACTICAL_EXAM":
+            return contains_any("practical exam", "practical examination") or any(
+                entry in {"exam", "exams", "examination", "examinations"}
+                for entry in use_entries
+            )
+        if code in {"PRACTICAL_SESSION", "LAB_SESSION"}:
+            return contains_any("practical", "laborator", " lab", "labs")
+        if code in {"EXTRA_LECTURE", "LECTURE"}:
+            return contains_any("lecture")
+        if code in {"SEMINAR", "GUEST_LECTURE"}:
+            return contains_any("seminar", "guest lecture")
+        if code == "WORKSHOP":
+            return contains_any("workshop")
+        if code in {"ACADEMIC_EVENT", "EVENT"}:
+            return contains_any("academic event", "conference", "hackathon", "seminar", "guest lecture")
+        if code == "OTHER":
+            return contains_any("other", "general use", "multipurpose")
+        return any(entry == code.lower().replace("_", " ") for entry in use_entries)
+
+    @staticmethod
+    def _purpose_label(purpose: Optional[str]) -> str:
+        return (purpose or "booking purpose").replace("_", " ").title()
+
+    @staticmethod
     def validate_time_range(start_time: time, end_time: time) -> Tuple[bool, Optional[str]]:
         """Validate start time is before end time and duration is reasonable."""
         if start_time >= end_time:
@@ -118,6 +168,17 @@ class ConflictEngine:
                     f"Room capacity exceeded: Room {room.room_number} accommodates up to {room.capacity} students, "
                     f"but {expected_students} were requested."
                 ), None
+
+        if not ConflictEngine._purpose_is_permitted(purpose, room.permitted_uses):
+            return False, (
+                f"Room {room.room_number} is not permitted for "
+                f"{ConflictEngine._purpose_label(purpose)}."
+            ), {
+                "type": "PURPOSE_NOT_PERMITTED",
+                "room_number": room.room_number,
+                "purpose": purpose,
+                "permitted_uses": room.permitted_uses,
+            }
 
         # 6. Overlapping Bookings Check using exact half-open interval formula:
         # existing_start < new_end AND existing_end > new_start
@@ -541,56 +602,88 @@ class ConflictEngine:
         target_date: Optional[date] = None,
         target_time: Optional[time] = None
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
-        """Determine a room's status at a specific date and time."""
-        if not room.is_active:
-            return "MAINTENANCE", {"reason": "Inactive room"}
-        if getattr(room, "is_bookable", True) is False:
-            return "RESTRICTED", {"reason": getattr(room, "unconfirmed_reason", "Administrative office space")}
-        if room.is_maintenance:
-            return "MAINTENANCE", {"reason": "Under active maintenance"}
-        if room.verification_status == "PENDING_ADMIN_VERIFICATION":
-            return "MAINTENANCE", {"reason": "Pending admin blueprint verification"}
+        """Determine one room's status using the batched status query."""
+        return ConflictEngine.get_room_current_statuses(
+            db, [room], target_date=target_date, target_time=target_time
+        )[room.id]
 
-        if target_date is None:
-            target_date = date.today()
-        if target_time is None:
-            target_time = datetime.now().time()
+    @staticmethod
+    def get_room_current_statuses(
+        db: Session,
+        rooms: List[Room],
+        target_date: Optional[date] = None,
+        target_time: Optional[time] = None,
+    ) -> Dict[int, Tuple[str, Optional[Dict[str, Any]]]]:
+        """Fetch live room statuses in batches instead of querying once per room."""
+        target_date = target_date or date.today()
+        target_time = target_time or datetime.now().time()
+        statuses: Dict[int, Tuple[str, Optional[Dict[str, Any]]]] = {}
+        available_rooms = []
 
-        # Check booking at that exact time
-        active_booking = db.query(Booking).filter(
-            Booking.room_id == room.id,
+        for room in rooms:
+            if not room.is_active:
+                statuses[room.id] = ("MAINTENANCE", {"reason": "Inactive room"})
+            elif not getattr(room, "is_bookable", True):
+                statuses[room.id] = (
+                    "RESTRICTED",
+                    {"reason": getattr(room, "unconfirmed_reason", None) or "Administrative office space"},
+                )
+            elif room.is_maintenance:
+                statuses[room.id] = ("MAINTENANCE", {"reason": "Under active maintenance"})
+            elif room.verification_status == "PENDING_ADMIN_VERIFICATION":
+                statuses[room.id] = ("MAINTENANCE", {"reason": "Pending admin blueprint verification"})
+            elif room.verification_status == "RESTRICTED":
+                statuses[room.id] = ("RESTRICTED", {"reason": "Restricted access"})
+            else:
+                available_rooms.append(room)
+
+        room_ids = [room.id for room in available_rooms]
+        if not room_ids:
+            return statuses
+
+        active_bookings = db.query(Booking).filter(
+            Booking.room_id.in_(room_ids),
             Booking.date == target_date,
             Booking.status.in_(["CONFIRMED", "PENDING_APPROVAL", "APPROVED"]),
             Booking.start_time <= target_time,
-            Booking.end_time > target_time
-        ).first()
+            Booking.end_time > target_time,
+        ).order_by(Booking.start_time, Booking.id).all()
+        for booking in active_bookings:
+            statuses.setdefault(
+                booking.room_id,
+                (
+                    "PENDING_APPROVAL" if booking.status == "PENDING_APPROVAL" else "BOOKED",
+                    {
+                        "booking_ref": booking.booking_reference,
+                        "title": booking.title,
+                        "purpose": booking.purpose,
+                        "start": booking.start_time.strftime("%H:%M"),
+                        "end": booking.end_time.strftime("%H:%M"),
+                    },
+                ),
+            )
 
-        if active_booking:
-            status_label = "PENDING_APPROVAL" if active_booking.status == "PENDING_APPROVAL" else "BOOKED"
-            return status_label, {
-                "booking_ref": active_booking.booking_reference,
-                "title": active_booking.title,
-                "purpose": active_booking.purpose,
-                "start": active_booking.start_time.strftime("%H:%M"),
-                "end": active_booking.end_time.strftime("%H:%M")
-            }
-
-        # Check regular schedule
-        dow = target_date.weekday()
-        sched = db.query(Schedule).filter(
-            Schedule.room_id == room.id,
-            Schedule.day_of_week == dow,
+        active_schedules = db.query(Schedule).filter(
+            Schedule.room_id.in_(room_ids),
+            Schedule.day_of_week == target_date.weekday(),
             Schedule.is_active == True,
             Schedule.start_time <= target_time,
-            Schedule.end_time > target_time
-        ).first()
+            Schedule.end_time > target_time,
+        ).order_by(Schedule.start_time, Schedule.id).all()
+        for schedule in active_schedules:
+            statuses.setdefault(
+                schedule.room_id,
+                (
+                    "BOOKED",
+                    {
+                        "title": f"{schedule.subject_code} - {schedule.subject_name}",
+                        "purpose": schedule.schedule_type,
+                        "start": schedule.start_time.strftime("%H:%M"),
+                        "end": schedule.end_time.strftime("%H:%M"),
+                    },
+                ),
+            )
 
-        if sched:
-            return "BOOKED", {
-                "title": f"{sched.subject_code} - {sched.subject_name}",
-                "purpose": sched.schedule_type,
-                "start": sched.start_time.strftime("%H:%M"),
-                "end": sched.end_time.strftime("%H:%M")
-            }
-
-        return "AVAILABLE", None
+        for room in available_rooms:
+            statuses.setdefault(room.id, ("AVAILABLE", None))
+        return statuses

@@ -9,6 +9,7 @@ from backend.app.models import (
     Announcement, AnnouncementVersion, Notification, IssueReport, AuditLog
 )
 from backend.app.auth import hash_password
+from backend.app.time_utils import utcnow
 
 def seed_database(force_reseed: bool = False):
     Base.metadata.create_all(bind=engine)
@@ -313,7 +314,7 @@ def seed_database(force_reseed: bool = False):
             value=s_dict["value"],
             category=s_dict["category"],
             description=s_dict["description"],
-            updated_at=datetime.utcnow(),
+            updated_at=utcnow(),
             updated_by_id=admin_user.id
         ))
     db.flush()
@@ -324,8 +325,8 @@ def seed_database(force_reseed: bool = False):
             room_id=room_objects["LH10"].id,
             title="Air Conditioning System Overhaul",
             reason="Scheduled preventive maintenance of HVAC compressor and air duct filters",
-            start_time=datetime.utcnow() + timedelta(days=5),
-            end_time=datetime.utcnow() + timedelta(days=5, hours=6),
+            start_time=utcnow() + timedelta(days=5),
+            end_time=utcnow() + timedelta(days=5, hours=6),
             created_by_id=admin_user.id,
             is_active=True
         )
@@ -512,7 +513,7 @@ def seed_database(force_reseed: bool = False):
         status="RESOLVED",
         admin_resolution_note="Classroom allocation verified. Room IET18 is the official venue for CS-301 Section A. Timetable synced.",
         resolved_by_id=admin_user.id,
-        resolved_at=datetime.utcnow()
+        resolved_at=utcnow()
     )
     db.add(rep1)
 

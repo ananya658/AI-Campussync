@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Room, Building } from '../../types';
-import { api } from '../../services/api';
+import { api, type BookingAlternative } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { 
   CalendarPlus, ShieldCheck, AlertCircle, Clock, 
@@ -34,10 +34,11 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
   const [academicYear, setAcademicYear] = useState<string>('3'); // 3rd Year
   const [section, setSection] = useState<string>('A');
   const [requirements, setRequirements] = useState('');
-  const [isTestData, setIsTestData] = useState(true);
+  const [isTestData, setIsTestData] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bookingAlternatives, setBookingAlternatives] = useState<BookingAlternative[]>([]);
   const [confirmedRef, setConfirmedRef] = useState<string | null>(null);
 
   // Split-sitting calculation state
@@ -73,6 +74,7 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setBookingAlternatives([]);
     setLoading(true);
 
     try {
@@ -94,6 +96,7 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
       setConfirmedRef(res.booking_reference);
     } catch (err: any) {
       setError(err.message || 'Booking conflict or capacity exceeded. Please check room availability.');
+      setBookingAlternatives(Array.isArray(err.alternatives) ? err.alternatives : []);
     } finally {
       setLoading(false);
     }
@@ -248,6 +251,28 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
               <div>
                 <span className="font-bold">Reservation Conflict Detected: </span>
                 {error}
+                {bookingAlternatives.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <p className="font-semibold">Available alternatives for this time:</p>
+                    {bookingAlternatives.map((alternative) => (
+                      <button
+                        key={alternative.room_id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBuildingId(alternative.building_id);
+                          setSelectedRoomId(alternative.room_id);
+                          setError(null);
+                          setBookingAlternatives([]);
+                        }}
+                        className="block w-full rounded-lg border border-rose-200 bg-white p-2 text-left hover:border-blue-400 hover:text-blue-700"
+                      >
+                        <span className="font-bold">{alternative.room_number}</span>
+                        <span> · {alternative.building_name} · capacity {alternative.capacity}</span>
+                        <span className="block text-slate-600">{alternative.reason}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

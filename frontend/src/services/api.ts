@@ -5,6 +5,29 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
+export interface BookingAlternative {
+  room_id: number;
+  room_number: string;
+  building_id: number;
+  building_name: string;
+  capacity: number;
+  reason: string;
+}
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  alternatives: BookingAlternative[];
+
+  constructor(message: string, status: number, code?: string, alternatives: BookingAlternative[] = []) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.alternatives = alternatives;
+  }
+}
+
 function buildUrl(path: string): URL {
   if (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) {
     const cleanBase = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
@@ -21,14 +44,26 @@ function getAuthHeader(): Record<string, string> {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let errorDetail = 'An unexpected error occurred';
+    let errJson: any;
     try {
-      const errJson = await res.json();
-      errorDetail = errJson.detail || errJson.message || JSON.stringify(errJson);
+      errJson = await res.json();
     } catch {
-      errorDetail = await res.text();
+      throw new ApiError('An unexpected error occurred', res.status);
     }
-    throw new Error(errorDetail);
+
+    const detail = errJson.detail;
+    if (detail && typeof detail === 'object') {
+      throw new ApiError(
+        detail.message || errJson.message || 'An unexpected error occurred',
+        res.status,
+        detail.code,
+        Array.isArray(detail.alternatives) ? detail.alternatives : [],
+      );
+    }
+    throw new ApiError(
+      typeof detail === 'string' ? detail : errJson.message || JSON.stringify(errJson),
+      res.status,
+    );
   }
   return res.json();
 }
@@ -133,6 +168,8 @@ export const api = {
     building_id?: number;
     is_test_data?: boolean;
     my_bookings_only?: boolean;
+    limit?: number;
+    offset?: number;
   }): Promise<Booking[]> => {
     const url = buildUrl('/bookings');
     if (params) {

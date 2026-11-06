@@ -5,6 +5,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from backend.app.database import Base
+from backend.app.time_utils import utcnow
 
 class User(Base):
     __tablename__ = "users"
@@ -17,8 +18,8 @@ class User(Base):
     department = Column(String(100), nullable=True)
     phone = Column(String(20), nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     student_profile = relationship("Student", back_populates="user", uselist=False, cascade="all, delete-orphan")
@@ -52,7 +53,7 @@ class Section(Base):
     academic_year = Column(Integer, nullable=False)  # 1, 2, 3, 4
     section_name = Column(String(10), nullable=False)  # "A", "B"
     student_count = Column(Integer, default=75)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     branch = relationship("Branch", back_populates="sections")
     students = relationship("Student", back_populates="section_rel")
@@ -212,14 +213,14 @@ class Booking(Base):
     idempotency_key = Column(String(100), nullable=True, unique=True, index=True)
     
     status = Column(String(50), default="CONFIRMED", index=True)  # CONFIRMED, PENDING_APPROVAL, CANCELLED, REJECTED, COMPLETED
-    is_test_data = Column(Boolean, default=True)  # Flag demo data vs official records
+    is_test_data = Column(Boolean, default=False)  # Flag demo data vs official records
     
     cancellation_reason = Column(Text, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
     cancelled_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     room = relationship("Room", back_populates="bookings")
@@ -283,8 +284,8 @@ class Announcement(Base):
     status = Column(String(50), default="PUBLISHED")  # PUBLISHED, ARCHIVED, DRAFT
     version = Column(Integer, default=1)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     creator = relationship("User", back_populates="created_announcements", foreign_keys=[created_by_id])
@@ -308,7 +309,7 @@ class AnnouncementVersion(Base):
     end_time = Column(Time, nullable=True)
     change_summary = Column(Text, nullable=False)
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     announcement = relationship("Announcement", back_populates="versions")
     modified_by = relationship("User")
@@ -325,7 +326,7 @@ class Notification(Base):
     notification_type = Column(String(50), nullable=False)  # BOOKING_CONFIRMED, BOOKING_CANCELLED, ROOM_CHANGED, EXAM_SCHEDULE_CHANGED, ANNOUNCEMENT, REPORT_RESOLVED
     link_url = Column(String(255), nullable=True)
     is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     user = relationship("User", back_populates="notifications")
 
@@ -349,8 +350,8 @@ class IssueReport(Base):
     resolved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     resolved_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     student = relationship("Student", back_populates="issue_reports")
     reporter = relationship("User", foreign_keys=[reporter_user_id])
@@ -373,7 +374,7 @@ class AuditLog(Base):
     new_value = Column(Text, nullable=True)       # JSON or text snapshot
     reason = Column(Text, nullable=True)
     ip_address = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     user = relationship("User", back_populates="audit_logs")
 
@@ -389,7 +390,7 @@ class RoomClosure(Base):
     end_time = Column(DateTime, nullable=False)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     room = relationship("Room", back_populates="closures")
     created_by = relationship("User")
@@ -428,7 +429,7 @@ class SystemSetting(Base):
     value = Column(String(255), nullable=False)
     category = Column(String(50), default="SCHEDULING")  # SCHEDULING, SPACING, CAMPUS
     description = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     updated_by = relationship("User")

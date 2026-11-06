@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from backend.app.database import get_db
+from backend.app.time_utils import utcnow
 from backend.app.models import (
     Room, Building, Floor, User, Student, Branch, Batch, Section,
     RoomClosure, SystemSetting, AuditLog
@@ -188,7 +189,7 @@ def update_system_setting(
 
     old_val = setting.value
     setting.value = update_in.value
-    setting.updated_at = datetime.utcnow()
+    setting.updated_at = utcnow()
     setting.updated_by_id = current_user.id
 
     db.commit()
@@ -444,7 +445,7 @@ async def import_students_csv(
         db=db,
         action_type="CREATE",
         entity_type="USER",
-        entity_id=f"BATCH-IMPORT-{datetime.utcnow().strftime('%Y%m%d%H%M')}",
+        entity_id=f"BATCH-IMPORT-{utcnow().strftime('%Y%m%d%H%M')}",
         user=current_user,
         new_value={"imported_count": imported, "skipped_duplicates": skipped_duplicates},
         reason=f"Imported {imported} students from CSV ({file.filename})"

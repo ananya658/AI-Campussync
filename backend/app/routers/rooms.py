@@ -1,7 +1,7 @@
 from typing import List, Optional
 from datetime import date, time, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from backend.app.database import get_db
 from backend.app.models import Room, Building, Floor, RoomFacility, User
 from backend.app.schemas import RoomResponse, RoomUpdate, RoomAvailabilityResult
@@ -51,7 +51,11 @@ def get_rooms(
     target_time_str: Optional[str] = Query(None, alias="target_time"),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Room)
+    query = db.query(Room).options(
+        joinedload(Room.building),
+        joinedload(Room.floor),
+        selectinload(Room.facilities),
+    )
     if building_id:
         query = query.filter(Room.building_id == building_id)
     if floor_id:
@@ -70,14 +74,15 @@ def get_rooms(
         except Exception:
             t_time = None
 
+    statuses = ConflictEngine.get_room_current_statuses(
+        db=db,
+        rooms=rooms,
+        target_date=target_date,
+        target_time=t_time,
+    )
     results = []
     for r in rooms:
-        status_val, active_info = ConflictEngine.get_room_current_status(
-            db=db,
-            room=r,
-            target_date=target_date,
-            target_time=t_time
-        )
+        status_val, active_info = statuses[r.id]
         results.append(format_room(r, current_status=status_val, active_booking=active_info))
 
     return results

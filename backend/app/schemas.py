@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime as dt_datetime, date as dt_date, time as dt_time
 
@@ -11,7 +11,14 @@ class UserBase(BaseModel):
     phone: Optional[str] = None
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=12)
+
+    @field_validator("password")
+    @classmethod
+    def validate_bcrypt_password_length(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes")
+        return value
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -143,7 +150,7 @@ class BookingCreate(BaseModel):
     linked_booking_id: Optional[int] = None
     split_role: Optional[str] = None  # PRIMARY, AUXILIARY
     idempotency_key: Optional[str] = None
-    is_test_data: bool = True
+    is_test_data: bool = False
 
 class BookingCancelRequest(BaseModel):
     reason: str

@@ -9,6 +9,7 @@ from backend.app.schemas import IssueReportCreate, IssueReportResolve, IssueRepo
 from backend.app.dependencies import get_current_user, require_role
 from backend.app.services.audit_service import AuditService
 from backend.app.services.notification_service import NotificationService
+from backend.app.time_utils import utcnow
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -118,7 +119,7 @@ def resolve_issue_report(
     report.status = resolve_in.status
     report.admin_resolution_note = resolve_in.admin_resolution_note
     report.resolved_by_id = current_user.id
-    report.resolved_at = datetime.utcnow()
+    report.resolved_at = utcnow()
 
     db.commit()
     db.refresh(report)

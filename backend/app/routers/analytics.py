@@ -26,15 +26,12 @@ def get_analytics_dashboard(
     total_seminar_halls = db.query(Room).filter(Room.room_type == "SEMINAR_HALL", Room.is_active == True).count()
     all_active_rooms = db.query(Room).filter(Room.is_active == True).all()
 
-    # Real-time room status calculation
-    occupied_count = 0
-    available_count = 0
-    for r in all_active_rooms:
-        status, _ = ConflictEngine.get_room_current_status(db, r, target_date=today, target_time=now_time)
-        if status == "BOOKED":
-            occupied_count += 1
-        elif status == "AVAILABLE":
-            available_count += 1
+    # Fetch active bookings and timetable slots for all rooms in two queries.
+    room_statuses = ConflictEngine.get_room_current_statuses(
+        db, all_active_rooms, target_date=today, target_time=now_time
+    )
+    occupied_count = sum(1 for status, _ in room_statuses.values() if status == "BOOKED")
+    available_count = sum(1 for status, _ in room_statuses.values() if status == "AVAILABLE")
 
     # Bookings stats
     total_active_bookings = db.query(Booking).filter(
@@ -83,11 +80,9 @@ def get_analytics_dashboard(
     for b in buildings:
         b_rooms = [r for r in all_active_rooms if r.building_id == b.id]
         b_total = len(b_rooms)
-        b_occupied = 0
-        for r in b_rooms:
-            st, _ = ConflictEngine.get_room_current_status(db, r, target_date=today, target_time=now_time)
-            if st == "BOOKED":
-                b_occupied += 1
+        b_occupied = sum(
+            1 for room in b_rooms if room_statuses.get(room.id, (None, None))[0] == "BOOKED"
+        )
         b_rate = round((b_occupied / b_total * 100), 1) if b_total > 0 else 0.0
         building_util.append({
             "building_id": b.id,

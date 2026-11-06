@@ -28,7 +28,7 @@ jobs:
       - name: Run Backend Automated Test Suite
         env:
           DATABASE_URL: sqlite:///./ci_test.db
-          JWT_SECRET: ci_secret_key_2026_test
+          JWT_SECRET: ci_secret_key_2026_test_only_32_chars_minimum
         run: |
           PYTHONPATH=. pytest backend/tests/test_campus_sync.py -v
 

@@ -5,7 +5,7 @@ from datetime import datetime, date, time
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 _booking_lock = threading.Lock()
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import desc
 from backend.app.database import get_db
 from backend.app.models import Booking, Room, User, Branch
@@ -17,6 +17,7 @@ from backend.app.services.audit_service import AuditService
 from backend.app.services.notification_service import NotificationService
 from backend.app.dependencies import get_current_user, require_role
 from backend.app.routers.rooms import format_room
+from backend.app.time_utils import utcnow
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
@@ -53,6 +54,97 @@ def format_booking(b: Booking) -> dict:
         "booked_by_email": b.user.email if b.user else None
     }
 
+
+def _available_room_alternatives(
+    db: Session,
+    booking_in: BookingCreate,
+    faculty_id: Optional[int],
+) -> list[dict]:
+    requested_room = db.query(Room).filter(Room.id == booking_in.room_id).first()
+    candidates = db.query(Room).filter(Room.id != booking_in.room_id).all()
+    available = []
+
+    for room in candidates:
+        is_available, _, _ = ConflictEngine.check_room_availability(
+            db=db,
+            room_id=room.id,
+            booking_date=booking_in.date,
+            start_time=booking_in.start_time,
+            end_time=booking_in.end_time,
+            expected_students=booking_in.expected_students,
+            purpose=booking_in.purpose,
+        )
+        if not is_available:
+            continue
+
+        section_available, _, _ = ConflictEngine.check_section_availability(
+            db=db,
+            branch_id=booking_in.branch_id,
+            academic_year=booking_in.academic_year,
+            section_name=booking_in.section,
+            booking_date=booking_in.date,
+            start_time=booking_in.start_time,
+            end_time=booking_in.end_time,
+        )
+        faculty_available, _, _ = ConflictEngine.check_faculty_availability(
+            db=db,
+            faculty_id=faculty_id,
+            booking_date=booking_in.date,
+            start_time=booking_in.start_time,
+            end_time=booking_in.end_time,
+        )
+        buffer_available, _ = ConflictEngine.check_travel_buffer(
+            db=db,
+            target_room_id=room.id,
+            booking_date=booking_in.date,
+            start_time=booking_in.start_time,
+            end_time=booking_in.end_time,
+            branch_id=booking_in.branch_id,
+            academic_year=booking_in.academic_year,
+            section_name=booking_in.section,
+            faculty_id=faculty_id,
+        )
+        if not section_available or not faculty_available or not buffer_available:
+            continue
+
+        available.append({
+            "room_id": room.id,
+            "room_number": room.room_number,
+            "building_id": room.building_id,
+            "building_name": room.building.name if room.building else "Unknown building",
+            "capacity": room.exam_capacity if booking_in.purpose in {
+                "MINOR_EXAM", "MAJOR_EXAM", "EXAM", "PRACTICAL_EXAM"
+            } else room.capacity,
+            "reason": "Available for the requested time and capacity.",
+            "_rank": (
+                room.building_id != requested_room.building_id if requested_room else True,
+                max(0, room.capacity - booking_in.expected_students),
+                room.room_number,
+            ),
+        })
+
+    available.sort(key=lambda option: option["_rank"])
+    for option in available:
+        del option["_rank"]
+    return available[:3]
+
+
+def _raise_booking_conflict(
+    message: str,
+    code: str,
+    conflict: Optional[dict] = None,
+    alternatives: Optional[list[dict]] = None,
+) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": code,
+            "message": message,
+            "conflict": conflict,
+            "alternatives": alternatives or [],
+        },
+    )
+
 @router.post("", response_model=BookingResponse)
 def create_booking(
     booking_in: BookingCreate,
@@ -71,6 +163,10 @@ def create_booking(
         if not val_ok:
             raise HTTPException(status_code=400, detail=val_err)
 
+        faculty_id_to_check = booking_in.faculty_id
+        if not faculty_id_to_check and current_user.faculty_profile:
+            faculty_id_to_check = current_user.faculty_profile.id
+
         # 2. Check Room conflicts using ConflictEngine (half-open interval [start, end) + closures + exam spacing)
         is_avail, conflict_reason, conflict_info = ConflictEngine.check_room_availability(
             db=db,
@@ -83,9 +179,11 @@ def create_booking(
         )
 
         if not is_avail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=conflict_reason or "Room is unavailable due to conflicting reservation."
+            _raise_booking_conflict(
+                conflict_reason or "Room is unavailable due to conflicting reservation.",
+                (conflict_info or {}).get("type", "ROOM_UNAVAILABLE"),
+                conflict=conflict_info,
+                alternatives=_available_room_alternatives(db, booking_in, faculty_id_to_check),
             )
 
         # 3. Check Section collision (Dimension 2: Academic Section cannot be double-booked)
@@ -99,16 +197,13 @@ def create_booking(
             end_time=booking_in.end_time
         )
         if not sec_avail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=sec_err or "Academic section collision detected."
+            _raise_booking_conflict(
+                sec_err or "Academic section collision detected.",
+                (sec_info or {}).get("type", "SECTION_CONFLICT"),
+                conflict=sec_info,
             )
 
         # 4. Check Faculty collision (Dimension 3: Faculty cannot be double-booked)
-        faculty_id_to_check = booking_in.faculty_id
-        if not faculty_id_to_check and current_user.faculty_profile:
-            faculty_id_to_check = current_user.faculty_profile.id
-
         fac_avail, fac_err, fac_info = ConflictEngine.check_faculty_availability(
             db=db,
             faculty_id=faculty_id_to_check,
@@ -117,9 +212,10 @@ def create_booking(
             end_time=booking_in.end_time
         )
         if not fac_avail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=fac_err or "Faculty schedule collision detected."
+            _raise_booking_conflict(
+                fac_err or "Faculty schedule collision detected.",
+                (fac_info or {}).get("type", "FACULTY_CONFLICT"),
+                conflict=fac_info,
             )
 
         # 5. Check Campus travel buffer (100m cross-campus transition)
@@ -135,10 +231,7 @@ def create_booking(
             faculty_id=faculty_id_to_check
         )
         if not buf_avail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=buf_err
-            )
+            _raise_booking_conflict(buf_err or "Campus travel buffer conflict.", "TRAVEL_BUFFER_CONFLICT")
 
         # 6. Generate reference
         ref_uuid = uuid.uuid4().hex[:6].upper()
@@ -230,17 +323,32 @@ def get_bookings(
     building_id: Optional[int] = Query(None),
     is_test_data: Optional[bool] = Query(None),
     my_bookings_only: bool = Query(False),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    query = db.query(Booking)
+    query = db.query(Booking).options(
+        joinedload(Booking.room).joinedload(Room.building),
+        joinedload(Booking.room).joinedload(Room.floor),
+        selectinload(Booking.room).selectinload(Room.facilities),
+        joinedload(Booking.user),
+    )
 
     # Faculty viewing only their own bookings or if flag set
-    if my_bookings_only or current_user.role == "FACULTY" and my_bookings_only:
+    if current_user.role == "FACULTY" and my_bookings_only:
         query = query.filter(Booking.user_id == current_user.id)
     elif current_user.role == "STUDENT":
-        # Students see confirmed/active academic bookings
-        query = query.filter(Booking.status.in_(["CONFIRMED", "COMPLETED"]))
+        # Students only see confirmed/completed bookings for their own cohort.
+        student = current_user.student_profile
+        if not student:
+            return []
+        query = query.filter(
+            Booking.status.in_(["CONFIRMED", "COMPLETED"]),
+            Booking.branch_id == student.branch_id,
+            Booking.academic_year == student.year,
+            Booking.section == student.section,
+        )
 
     if status_filter:
         query = query.filter(Booking.status == status_filter)
@@ -251,7 +359,9 @@ def get_bookings(
     if is_test_data is not None:
         query = query.filter(Booking.is_test_data == is_test_data)
 
-    bookings = query.order_by(desc(Booking.date), desc(Booking.start_time)).all()
+    bookings = query.order_by(
+        desc(Booking.date), desc(Booking.start_time), desc(Booking.id)
+    ).offset(offset).limit(limit).all()
     return [format_booking(b) for b in bookings]
 
 
@@ -455,7 +565,7 @@ def cancel_booking(
     old_status = b.status
     b.status = "CANCELLED"
     b.cancellation_reason = cancel_in.reason
-    b.cancelled_at = datetime.utcnow()
+    b.cancelled_at = utcnow()
     b.cancelled_by_id = current_user.id
 
     db.commit()
@@ -542,176 +652,3 @@ def update_booking_status(
     )
 
     return format_booking(b)
-
-
-@router.get("/split-plan")
-def get_split_plan(
-    booking_date: Optional[str] = Query(None, description="Target exam date (YYYY-MM-DD)"),
-    date: Optional[str] = Query(None, description="Target exam date alias (YYYY-MM-DD)"),
-    start_time: str = Query("09:00", description="Exam start time (HH:MM)"),
-    end_time: str = Query("11:00", description="Exam end time (HH:MM)"),
-    total_students: Optional[int] = Query(None, description="Total candidates in section"),
-    total_candidates: Optional[int] = Query(None, description="Total candidates alias"),
-    building_id: Optional[int] = Query(None, description="Building ID preference"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(["FACULTY", "ADMIN"]))
-):
-    """
-    Returns calculated split-sitting arrangements according to the Corrected Design PDF:
-    - Large single halls (IET32, LIB)
-    - Deeksha Bhawan long room pairs (LH01 + LH02, LH08 + LH09)
-    - Adjacent IET classrooms with auxiliary seats
-    """
-    target_date_str = booking_date or date or str(date.today())
-    target_count = total_students or total_candidates or 75
-
-    try:
-        b_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-    except Exception:
-        b_date = date.today()
-
-    try:
-        s_time = datetime.strptime(start_time, "%H:%M").time()
-    except Exception:
-        try:
-            s_time = datetime.strptime(start_time, "%H:%M:%S").time()
-        except Exception:
-            s_time = time(9, 0)
-
-    try:
-        e_time = datetime.strptime(end_time, "%H:%M").time()
-    except Exception:
-        try:
-            e_time = datetime.strptime(end_time, "%H:%M:%S").time()
-        except Exception:
-            e_time = time(11, 0)
-
-    candidates = ConflictEngine.recommend_split_sitting(
-        db=db,
-        booking_date=b_date,
-        start_time=s_time,
-        end_time=e_time,
-        total_students=target_count
-    )
-    return {
-        "date": b_date,
-        "start_time": s_time.strftime("%H:%M"),
-        "end_time": e_time.strftime("%H:%M"),
-        "total_students": target_count,
-        "recommendations": candidates
-    }
-
-
-@router.post("/split-booking")
-def create_split_booking(
-    payload: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(["FACULTY", "ADMIN"]))
-):
-    """
-    Creates an atomic split-sitting arrangement across two rooms for an examination.
-    Generates linked bookings: Primary and Auxiliary.
-    """
-    with _booking_lock:
-        primary_room_id = payload.get("primary_room_id")
-        auxiliary_room_id = payload.get("auxiliary_room_id")
-        date_str = payload.get("date")
-        start_str = payload.get("start_time")
-        end_str = payload.get("end_time")
-        title = payload.get("title", "Section Examination Sitting")
-        primary_students = payload.get("primary_students", 38)
-        auxiliary_students = payload.get("auxiliary_students", 37)
-        branch_id = payload.get("branch_id")
-        academic_year = payload.get("academic_year")
-        section = payload.get("section")
-
-        if not primary_room_id or not auxiliary_room_id or not date_str or not start_str or not end_str:
-            raise HTTPException(status_code=400, detail="Missing required fields for split booking.")
-
-        b_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        s_time = datetime.strptime(start_str, "%H:%M").time()
-        e_time = datetime.strptime(end_str, "%H:%M").time()
-
-        # Validate availability of both rooms
-        p_ok, p_err, _ = ConflictEngine.check_room_availability(
-            db=db, room_id=primary_room_id, booking_date=b_date,
-            start_time=s_time, end_time=e_time, expected_students=primary_students,
-            purpose="MINOR_EXAM"
-        )
-        if not p_ok:
-            raise HTTPException(status_code=409, detail=f"Primary room conflict: {p_err}")
-
-        a_ok, a_err, _ = ConflictEngine.check_room_availability(
-            db=db, room_id=auxiliary_room_id, booking_date=b_date,
-            start_time=s_time, end_time=e_time, expected_students=auxiliary_students,
-            purpose="MINOR_EXAM"
-        )
-        if not a_ok:
-            raise HTTPException(status_code=409, detail=f"Auxiliary room conflict: {a_err}")
-
-        ref_uuid1 = uuid.uuid4().hex[:6].upper()
-        ref_uuid2 = uuid.uuid4().hex[:6].upper()
-
-        b1 = Booking(
-            booking_reference=f"CS-{b_date.strftime('%Y%m%d')}-SPLIT-{ref_uuid1}",
-            room_id=primary_room_id,
-            user_id=current_user.id,
-            title=f"{title} (Sitting A)",
-            purpose="MINOR_EXAM",
-            date=b_date,
-            start_time=s_time,
-            end_time=e_time,
-            expected_students=primary_students,
-            branch_id=branch_id,
-            academic_year=academic_year,
-            section=section,
-            is_split_sitting=True,
-            split_role="PRIMARY",
-            status="CONFIRMED"
-        )
-        db.add(b1)
-        db.flush()
-
-        b2 = Booking(
-            booking_reference=f"CS-{b_date.strftime('%Y%m%d')}-SPLIT-{ref_uuid2}",
-            room_id=auxiliary_room_id,
-            user_id=current_user.id,
-            title=f"{title} (Sitting B)",
-            purpose="MINOR_EXAM",
-            date=b_date,
-            start_time=s_time,
-            end_time=e_time,
-            expected_students=auxiliary_students,
-            branch_id=branch_id,
-            academic_year=academic_year,
-            section=section,
-            is_split_sitting=True,
-            split_role="AUXILIARY",
-            linked_booking_id=b1.id,
-            status="CONFIRMED"
-        )
-        db.add(b2)
-        db.flush()
-
-        b1.linked_booking_id = b2.id
-        db.commit()
-        db.refresh(b1)
-        db.refresh(b2)
-
-        NotificationService.notify_target_students(
-            db=db,
-            title=f"Exam Split Sitting Announced: {title}",
-            message=f"Your section examination is split across Room {b1.room.room_number} (candidates 1-{primary_students}) and Room {b2.room.room_number} (candidates {primary_students+1}-{primary_students+auxiliary_students}).",
-            notification_type="EXAM_SCHEDULE_CHANGED",
-            branch_id=branch_id,
-            year=academic_year,
-            section=section
-        )
-
-        return {
-            "status": "SUCCESS",
-            "message": "Atomic split sitting successfully reserved.",
-            "primary_booking": format_booking(b1),
-            "auxiliary_booking": format_booking(b2)
-        }
-

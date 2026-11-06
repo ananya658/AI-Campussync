@@ -1,12 +1,10 @@
 import pytest
 from datetime import date, time, timedelta
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from backend.app.main import app
-from backend.app.database import Base, get_db
+from backend.app.database import get_db
 from backend.app.seed import seed_database
-from backend.app.models import Room, Booking, User, Branch
+from backend.app.models import Booking
 
 client = TestClient(app)
 
@@ -15,7 +13,7 @@ def clean_test_bookings():
     # The CI database is fresh, and TestClient does not run the app lifespan
     # unless used as a context manager. Seed the isolated test database here
     # so these integration tests have their required users, rooms, and settings.
-    seed_database()
+    seed_database(force_reseed=True)
     db = next(get_db())
     db.query(Booking).filter(
         Booking.title.in_([
@@ -183,7 +181,7 @@ def test_05_overlapping_booking_rejection():
         headers={"Authorization": f"Bearer {faculty_token}"}
     )
     assert res.status_code == 409
-    assert "conflict" in res.json()["detail"].lower()
+    assert "conflict" in res.json()["detail"]["message"].lower()
 
 # --- TEST 6: Start time after or equal to end time ---
 def test_06_invalid_time_range():
@@ -231,7 +229,7 @@ def test_07_insufficient_room_capacity():
         headers={"Authorization": f"Bearer {faculty_token}"}
     )
     assert res.status_code == 409
-    assert "capacity exceeded" in res.json()["detail"].lower()
+    assert "capacity exceeded" in res.json()["detail"]["message"].lower()
 
 # --- TEST 8: Cancelled booking frees up room availability ---
 def test_08_cancelled_booking_frees_availability():
@@ -522,7 +520,7 @@ def test_14_academic_section_collision():
         headers={"Authorization": f"Bearer {faculty_token}"}
     )
     assert b2_res.status_code == 409
-    assert "section collision" in b2_res.json()["detail"].lower()
+    assert "section collision" in b2_res.json()["detail"]["message"].lower()
 
 
 # --- TEST 15: Resource collision dimension 3: Faculty collision ---
@@ -567,7 +565,7 @@ def test_15_faculty_collision():
         headers={"Authorization": f"Bearer {faculty_token}"}
     )
     assert res2.status_code == 409
-    assert "faculty collision" in res2.json()["detail"].lower()
+    assert "faculty collision" in res2.json()["detail"]["message"].lower()
 
 
 # --- TEST 16: Spaced Examination Capacity & Split Recommendation ---
@@ -596,7 +594,7 @@ def test_16_spaced_examination_capacity_and_split_recommendation():
         headers={"Authorization": f"Bearer {faculty_token}"}
     )
     assert exam_res.status_code == 409
-    assert "spaced examination capacity exceeded" in exam_res.json()["detail"].lower()
+    assert "spaced examination capacity exceeded" in exam_res.json()["detail"]["message"].lower()
 
     # Query split recommendation plan
     plan_res = client.get(
