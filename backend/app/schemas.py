@@ -45,6 +45,10 @@ class RoomBase(BaseModel):
     room_name: str
     room_type: str
     capacity: int
+    exam_capacity: int = 37
+    is_bookable: bool = True
+    is_unconfirmed: bool = False
+    unconfirmed_reason: Optional[str] = None
     is_active: bool = True
     is_maintenance: bool = False
     verification_status: str = "OFFICIAL_VERIFIED"
@@ -131,8 +135,14 @@ class BookingCreate(BaseModel):
     branch_id: Optional[int] = None
     academic_year: Optional[int] = None
     batch_id: Optional[int] = None
+    section_id: Optional[int] = None
     section: Optional[str] = None
+    faculty_id: Optional[int] = None
     additional_requirements: Optional[str] = None
+    is_split_sitting: bool = False
+    linked_booking_id: Optional[int] = None
+    split_role: Optional[str] = None  # PRIMARY, AUXILIARY
+    idempotency_key: Optional[str] = None
     is_test_data: bool = True
 
 class BookingCancelRequest(BaseModel):
@@ -156,8 +166,14 @@ class BookingResponse(BaseModel):
     branch_id: Optional[int] = None
     academic_year: Optional[int] = None
     batch_id: Optional[int] = None
+    section_id: Optional[int] = None
     section: Optional[str] = None
+    faculty_id: Optional[int] = None
     additional_requirements: Optional[str] = None
+    is_split_sitting: bool = False
+    linked_booking_id: Optional[int] = None
+    split_role: Optional[str] = None
+    idempotency_key: Optional[str] = None
     status: str
     is_test_data: bool
     cancellation_reason: Optional[str] = None
@@ -168,6 +184,53 @@ class BookingResponse(BaseModel):
     booked_by_email: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+# --- Section & Closure & Setting Schemas ---
+class SectionResponse(BaseModel):
+    id: int
+    code: str
+    branch_id: int
+    academic_year: int
+    section_name: str
+    student_count: int
+    branch_code: Optional[str] = None
+    branch_name: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class RoomClosureCreate(BaseModel):
+    room_id: int
+    title: str
+    reason: str
+    start_time: dt_datetime
+    end_time: dt_datetime
+
+class RoomClosureResponse(BaseModel):
+    id: int
+    room_id: int
+    room_number: Optional[str] = None
+    title: str
+    reason: str
+    start_time: dt_datetime
+    end_time: dt_datetime
+    is_active: bool
+    created_at: dt_datetime
+    created_by_name: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SystemSettingResponse(BaseModel):
+    id: int
+    key: str
+    value: str
+    category: str
+    description: Optional[str] = None
+    updated_at: dt_datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SystemSettingUpdate(BaseModel):
+    value: str
 
 # --- Schedule Schemas ---
 class ScheduleCreate(BaseModel):

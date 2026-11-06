@@ -40,6 +40,24 @@ class Branch(Base):
 
     students = relationship("Student", back_populates="branch")
     schedules = relationship("Schedule", back_populates="branch")
+    sections = relationship("Section", back_populates="branch", cascade="all, delete-orphan")
+
+
+class Section(Base):
+    __tablename__ = "sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, index=True, nullable=False)  # e.g., "CSE-3A", "ME-2A"
+    branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False)
+    academic_year = Column(Integer, nullable=False)  # 1, 2, 3, 4
+    section_name = Column(String(10), nullable=False)  # "A", "B"
+    student_count = Column(Integer, default=75)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    branch = relationship("Branch", back_populates="sections")
+    students = relationship("Student", back_populates="section_rel")
+    bookings = relationship("Booking", back_populates="section_rel")
+    timetable_slots = relationship("TimetableSlot", back_populates="section_rel")
 
 
 class Batch(Base):
@@ -61,12 +79,14 @@ class Student(Base):
     roll_number = Column(String(50), unique=True, index=True, nullable=False)
     branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False)
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=True)
     year = Column(Integer, nullable=False)  # 1, 2, 3, 4
     section = Column(String(5), nullable=False)  # A, B
 
     user = relationship("User", back_populates="student_profile")
     branch = relationship("Branch", back_populates="students")
     batch = relationship("Batch", back_populates="students")
+    section_rel = relationship("Section", back_populates="students")
     issue_reports = relationship("IssueReport", back_populates="student", cascade="all, delete-orphan")
 
 
@@ -83,6 +103,7 @@ class Faculty(Base):
     user = relationship("User", back_populates="faculty_profile")
     cabin = relationship("Room", foreign_keys=[cabin_room_id])
     schedules = relationship("Schedule", back_populates="faculty")
+    bookings = relationship("Booking", back_populates="faculty_rel")
 
 
 class Building(Base):
@@ -122,6 +143,10 @@ class Room(Base):
     room_name = Column(String(255), nullable=False)  # e.g. "Classroom IET17", "CSE Laboratory"
     room_type = Column(String(50), nullable=False)  # LECTURE_HALL, LAB, SEMINAR_HALL, OFFICE, LIBRARY
     capacity = Column(Integer, nullable=False)
+    exam_capacity = Column(Integer, nullable=False, default=37)  # Spaced exam capacity (typically 0.5 * capacity)
+    is_bookable = Column(Boolean, default=True)
+    is_unconfirmed = Column(Boolean, default=False)  # Blueprint assumption flag
+    unconfirmed_reason = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
     is_maintenance = Column(Boolean, default=False)
     
@@ -137,6 +162,8 @@ class Room(Base):
     facilities = relationship("RoomFacility", back_populates="room", cascade="all, delete-orphan")
     bookings = relationship("Booking", back_populates="room")
     schedules = relationship("Schedule", back_populates="room")
+    closures = relationship("RoomClosure", back_populates="room", cascade="all, delete-orphan")
+    timetable_slots = relationship("TimetableSlot", back_populates="room")
 
     __table_args__ = (
         UniqueConstraint("building_id", "room_number", name="uq_building_room_number"),
@@ -173,8 +200,16 @@ class Booking(Base):
     branch_id = Column(Integer, ForeignKey("branches.id"), nullable=True)
     academic_year = Column(Integer, nullable=True)  # 1, 2, 3, 4
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=True)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=True)
     section = Column(String(10), nullable=True)
+    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True)
     additional_requirements = Column(Text, nullable=True)
+    
+    # Advanced scheduling & split sitting support
+    is_split_sitting = Column(Boolean, default=False)
+    linked_booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=True)
+    split_role = Column(String(20), nullable=True)  # PRIMARY, AUXILIARY
+    idempotency_key = Column(String(100), nullable=True, unique=True, index=True)
     
     status = Column(String(50), default="CONFIRMED", index=True)  # CONFIRMED, PENDING_APPROVAL, CANCELLED, REJECTED, COMPLETED
     is_test_data = Column(Boolean, default=True)  # Flag demo data vs official records
@@ -192,6 +227,9 @@ class Booking(Base):
     cancelled_by = relationship("User", foreign_keys=[cancelled_by_id])
     branch = relationship("Branch")
     batch = relationship("Batch")
+    section_rel = relationship("Section", back_populates="bookings")
+    faculty_rel = relationship("Faculty", back_populates="bookings", foreign_keys=[faculty_id])
+    linked_booking = relationship("Booking", remote_side=[id])
 
     __table_args__ = (
         Index("idx_booking_room_date_status", "room_id", "date", "status"),
@@ -338,4 +376,60 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="audit_logs")
+
+
+class RoomClosure(Base):
+    __tablename__ = "room_closures"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    reason = Column(Text, nullable=False)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    room = relationship("Room", back_populates="closures")
+    created_by = relationship("User")
+
+
+class TimetableSlot(Base):
+    __tablename__ = "timetable_slots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False)
+    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=True)
+    academic_year = Column(Integer, nullable=False)  # 1, 2, 3, 4
+    section_name = Column(String(10), nullable=False)  # "A", "B"
+    day_of_week = Column(Integer, nullable=False)  # 0=Monday, ..., 5=Saturday
+    period = Column(Integer, nullable=False)      # 1 to 8
+    start_time = Column(Time, nullable=False)
+    end_time = Column(Time, nullable=False)
+    subject_code = Column(String(50), nullable=False)
+    subject_name = Column(String(255), nullable=False)
+    slot_type = Column(String(50), default="LECTURE")  # LECTURE, LAB, TUTORIAL
+    is_active = Column(Boolean, default=True)
+
+    room = relationship("Room", back_populates="timetable_slots")
+    faculty = relationship("Faculty")
+    branch = relationship("Branch")
+    section_rel = relationship("Section", back_populates="timetable_slots")
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, index=True, nullable=False)
+    value = Column(String(255), nullable=False)
+    category = Column(String(50), default="SCHEDULING")  # SCHEDULING, SPACING, CAMPUS
+    description = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    updated_by = relationship("User")
 

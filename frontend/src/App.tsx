@@ -13,6 +13,7 @@ import { AboutPage } from './pages/AboutPage';
 // Admin Pages
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { BuildingsRoomsPage } from './pages/admin/BuildingsRoomsPage';
+import { AdminReconciliationPage } from './pages/admin/AdminReconciliationPage';
 import { BookingsManagementPage } from './pages/admin/BookingsManagementPage';
 import { AnnouncementsPage } from './pages/admin/AnnouncementsPage';
 import { StudentReportsPage } from './pages/admin/StudentReportsPage';
@@ -106,6 +107,8 @@ export const AppContent: React.FC = () => {
         return <AdminDashboard onNavigate={(v) => setCurrentView(v)} />;
       case 'admin-buildings':
         return <BuildingsRoomsPage />;
+      case 'admin-reconciliation':
+        return <AdminReconciliationPage />;
       case 'admin-bookings':
         return <BookingsManagementPage />;
       case 'admin-schedules':

@@ -18,8 +18,17 @@ def clean_test_bookings():
             "Automated Unit Test Lecture",
             "Overlapping Conflicting Lecture",
             "Session to be Cancelled",
-            "Replacement Session in Freed Slot"
-        ])
+            "Replacement Session in Freed Slot",
+            "First Half-Open Slot",
+            "Second Back-to-Back Slot",
+            "Section CSE-3A Theory Session",
+            "Colliding Section CSE-3A Lab Session",
+            "Dr. Verma AI Guest Session",
+            "Dr. Verma Simultaneous Session",
+            "Minor Exam 1: Algorithms",
+            "B.Tech Minor Exam Atomic Split (Sitting A)",
+            "B.Tech Minor Exam Atomic Split (Sitting B)"
+        ]) | Booking.title.like("Concurrent Race Request%")
     ).delete(synchronize_session=False)
     db.commit()
     yield
@@ -28,8 +37,17 @@ def clean_test_bookings():
             "Automated Unit Test Lecture",
             "Overlapping Conflicting Lecture",
             "Session to be Cancelled",
-            "Replacement Session in Freed Slot"
-        ])
+            "Replacement Session in Freed Slot",
+            "First Half-Open Slot",
+            "Second Back-to-Back Slot",
+            "Section CSE-3A Theory Session",
+            "Colliding Section CSE-3A Lab Session",
+            "Dr. Verma AI Guest Session",
+            "Dr. Verma Simultaneous Session",
+            "Minor Exam 1: Algorithms",
+            "B.Tech Minor Exam Atomic Split (Sitting A)",
+            "B.Tech Minor Exam Atomic Split (Sitting B)"
+        ]) | Booking.title.like("Concurrent Race Request%")
     ).delete(synchronize_session=False)
     db.commit()
 
@@ -102,8 +120,8 @@ def test_04_successful_booking():
         "title": "Automated Unit Test Lecture",
         "purpose": "EXTRA_LECTURE",
         "date": booking_date,
-        "start_time": "14:00",
-        "end_time": "15:00",
+        "start_time": "17:00",
+        "end_time": "18:00",
         "expected_students": 50,
         "is_test_data": True
     }
@@ -126,7 +144,7 @@ def test_05_overlapping_booking_rejection():
     room_iet24 = next(r for r in rooms_resp.json() if r["room_number"] == "IET24")
     booking_date = (date.today() + timedelta(days=20)).isoformat()
 
-    # Step 1: Create initial booking from 14:00 to 15:00
+    # Step 1: Create initial booking from 17:00 to 18:00
     first_resp = client.post(
         "/api/bookings",
         json={
@@ -134,8 +152,8 @@ def test_05_overlapping_booking_rejection():
             "title": "Automated Unit Test Lecture",
             "purpose": "EXTRA_LECTURE",
             "date": booking_date,
-            "start_time": "14:00",
-            "end_time": "15:00",
+            "start_time": "17:00",
+            "end_time": "18:00",
             "expected_students": 50,
             "is_test_data": True
         },
@@ -143,14 +161,14 @@ def test_05_overlapping_booking_rejection():
     )
     assert first_resp.status_code == 200
 
-    # Step 2: An overlapping request from 14:30 to 15:30 MUST be rejected with 409 Conflict!
+    # Step 2: An overlapping request from 17:30 to 18:30 MUST be rejected with 409 Conflict!
     overlap_payload = {
         "room_id": room_iet24["id"],
         "title": "Overlapping Conflicting Lecture",
         "purpose": "EXTRA_LECTURE",
         "date": booking_date,
-        "start_time": "14:30",
-        "end_time": "15:30",
+        "start_time": "17:30",
+        "end_time": "18:30",
         "expected_students": 40,
         "is_test_data": True
     }
@@ -218,7 +236,7 @@ def test_08_cancelled_booking_frees_availability():
     room_iet28 = next(r for r in rooms_resp.json() if r["room_number"] == "IET28")
     booking_date = (date.today() + timedelta(days=25)).isoformat()
 
-    # Step 1: Book slot 10:00 - 11:00
+    # Step 1: Book slot 17:00 - 18:00
     create_res = client.post(
         "/api/bookings",
         json={
@@ -226,8 +244,8 @@ def test_08_cancelled_booking_frees_availability():
             "title": "Session to be Cancelled",
             "purpose": "EXTRA_LECTURE",
             "date": booking_date,
-            "start_time": "10:00",
-            "end_time": "11:00",
+            "start_time": "17:00",
+            "end_time": "18:00",
             "expected_students": 50
         },
         headers={"Authorization": f"Bearer {faculty_token}"}
@@ -252,8 +270,8 @@ def test_08_cancelled_booking_frees_availability():
             "title": "Replacement Session in Freed Slot",
             "purpose": "EXTRA_LECTURE",
             "date": booking_date,
-            "start_time": "10:00",
-            "end_time": "11:00",
+            "start_time": "17:00",
+            "end_time": "18:00",
             "expected_students": 50
         },
         headers={"Authorization": f"Bearer {faculty_token}"}
@@ -406,3 +424,286 @@ def test_12_ai_recommendation_engine():
     assert ai_lab_resp.status_code == 200
     lab_data = ai_lab_resp.json()
     assert lab_data["interpreted_query"]["room_type"] == "LAB"
+
+
+# --- TEST 13: Half-open interval semantics [start, end) ---
+def test_13_half_open_interval_back_to_back():
+    """
+    Core correctness contract:
+    A booking from 17:00–18:00 and another from 18:00–19:00 in the same room MUST be allowed.
+    """
+    faculty_token = get_auth_token("prof.sharma@ddugu.ac.in", "Faculty@123")
+    rooms_resp = client.get("/api/rooms")
+    room = next(r for r in rooms_resp.json() if r["room_number"] == "IET30")
+    test_date = (date.today() + timedelta(days=28)).isoformat()
+
+    # Slot 1: 17:00 to 18:00
+    res1 = client.post(
+        "/api/bookings",
+        json={
+            "room_id": room["id"],
+            "title": "First Half-Open Slot",
+            "purpose": "EXTRA_LECTURE",
+            "date": test_date,
+            "start_time": "17:00",
+            "end_time": "18:00",
+            "expected_students": 40
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert res1.status_code == 200
+
+    # Slot 2: 18:00 to 19:00 (Touches boundary at 18:00, MUST NOT collide!)
+    res2 = client.post(
+        "/api/bookings",
+        json={
+            "room_id": room["id"],
+            "title": "Second Back-to-Back Slot",
+            "purpose": "EXTRA_LECTURE",
+            "date": test_date,
+            "start_time": "18:00",
+            "end_time": "19:00",
+            "expected_students": 40
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert res2.status_code == 200, f"Half-open back-to-back booking failed: {res2.text}"
+
+
+# --- TEST 14: Resource collision dimension 2: Academic Section collision ---
+def test_14_academic_section_collision():
+    """
+    Section CSE Year 3 Section A cannot be scheduled in two rooms at the same time.
+    """
+    faculty_token = get_auth_token("prof.sharma@ddugu.ac.in", "Faculty@123")
+    rooms = client.get("/api/rooms").json()
+    r1 = next(r for r in rooms if r["room_number"] == "IET18")
+    r2 = next(r for r in rooms if r["room_number"] == "IET19")
+    test_date = (date.today() + timedelta(days=29)).isoformat()
+
+    # Step 1: Book Section CSE-3A in Room 1
+    b1_res = client.post(
+        "/api/bookings",
+        json={
+            "room_id": r1["id"],
+            "title": "Section CSE-3A Theory Session",
+            "purpose": "EXTRA_LECTURE",
+            "date": test_date,
+            "start_time": "17:00",
+            "end_time": "18:00",
+            "expected_students": 70,
+            "branch_id": 1,
+            "academic_year": 3,
+            "section": "A"
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert b1_res.status_code == 200
+
+    # Step 2: Attempt to book same section CSE-3A in Room 2 during overlapping window
+    b2_res = client.post(
+        "/api/bookings",
+        json={
+            "room_id": r2["id"],
+            "title": "Colliding Section CSE-3A Lab Session",
+            "purpose": "EXTRA_LECTURE",
+            "date": test_date,
+            "start_time": "17:30",
+            "end_time": "18:30",
+            "expected_students": 70,
+            "branch_id": 1,
+            "academic_year": 3,
+            "section": "A"
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert b2_res.status_code == 409
+    assert "section collision" in b2_res.json()["detail"].lower()
+
+
+# --- TEST 15: Resource collision dimension 3: Faculty collision ---
+def test_15_faculty_collision():
+    """
+    Professor Dr. Sunita Verma cannot be booked in two separate rooms at the same time.
+    """
+    faculty_token = get_auth_token("dr.verma@ddugu.ac.in", "Faculty@123")
+    rooms = client.get("/api/rooms").json()
+    r1 = next(r for r in rooms if r["room_number"] == "IET24")
+    r2 = next(r for r in rooms if r["room_number"] == "IET25")
+    test_date = (date.today() + timedelta(days=30)).isoformat()
+
+    # Booking 1 with Dr. Verma in IET24
+    res1 = client.post(
+        "/api/bookings",
+        json={
+            "room_id": r1["id"],
+            "title": "Dr. Verma AI Guest Session",
+            "purpose": "EXTRA_LECTURE",
+            "date": test_date,
+            "start_time": "17:00",
+            "end_time": "18:00",
+            "expected_students": 40
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert res1.status_code == 200
+
+    # Booking 2 by same Dr. Verma in IET25 at same time MUST fail
+    res2 = client.post(
+        "/api/bookings",
+        json={
+            "room_id": r2["id"],
+            "title": "Dr. Verma Simultaneous Session",
+            "purpose": "EXTRA_LECTURE",
+            "date": test_date,
+            "start_time": "17:15",
+            "end_time": "18:15",
+            "expected_students": 40
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert res2.status_code == 409
+    assert "faculty collision" in res2.json()["detail"].lower()
+
+
+# --- TEST 16: Spaced Examination Capacity & Split Recommendation ---
+def test_16_spaced_examination_capacity_and_split_recommendation():
+    """
+    In a room with nominal capacity 75 (IET18), spaced exam capacity is 37.
+    Requesting 75 candidates for MINOR_EXAM must be refused and trigger split recommendations.
+    """
+    faculty_token = get_auth_token("prof.sharma@ddugu.ac.in", "Faculty@123")
+    rooms = client.get("/api/rooms").json()
+    room_iet18 = next(r for r in rooms if r["room_number"] == "IET18")
+    test_date = (date.today() + timedelta(days=31)).isoformat()
+
+    # Attempting 75 candidates in 37 exam seat room
+    exam_res = client.post(
+        "/api/bookings",
+        json={
+            "room_id": room_iet18["id"],
+            "title": "Minor Exam 1: Algorithms",
+            "purpose": "MINOR_EXAM",
+            "date": test_date,
+            "start_time": "17:00",
+            "end_time": "19:00",
+            "expected_students": 75
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert exam_res.status_code == 409
+    assert "spaced examination capacity exceeded" in exam_res.json()["detail"].lower()
+
+    # Query split recommendation plan
+    plan_res = client.get(
+        f"/api/bookings/split-plan?booking_date={test_date}&start_time=17:00&end_time=19:00&total_students=75",
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert plan_res.status_code == 200
+    plan_data = plan_res.json()
+    assert "recommendations" in plan_data
+    assert len(plan_data["recommendations"]) > 0
+
+
+# --- TEST 17: Atomic Split Booking Creation ---
+def test_17_atomic_split_booking_creation():
+    """
+    Atomically creates two linked bookings for an examination split sitting.
+    """
+    faculty_token = get_auth_token("prof.sharma@ddugu.ac.in", "Faculty@123")
+    rooms = client.get("/api/rooms").json()
+    r1 = next(r for r in rooms if r["room_number"] == "LH01")
+    r2 = next(r for r in rooms if r["room_number"] == "LH02")
+    test_date = (date.today() + timedelta(days=32)).isoformat()
+
+    split_res = client.post(
+        "/api/bookings/split-booking",
+        json={
+            "primary_room_id": r1["id"],
+            "auxiliary_room_id": r2["id"],
+            "date": test_date,
+            "start_time": "17:00",
+            "end_time": "19:00",
+            "title": "B.Tech Minor Exam Atomic Split",
+            "primary_students": 40,
+            "auxiliary_students": 35,
+            "branch_id": 1,
+            "academic_year": 3,
+            "section": "A"
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"}
+    )
+    assert split_res.status_code == 200
+    data = split_res.json()
+    assert data["status"] == "SUCCESS"
+    assert data["primary_booking"]["is_split_sitting"] == True
+    assert data["auxiliary_booking"]["is_split_sitting"] == True
+    assert data["auxiliary_booking"]["linked_booking_id"] == data["primary_booking"]["id"]
+
+
+# --- TEST 18: Concurrency Race Condition (20 Simultaneous Booking Requests) ---
+def test_18_concurrency_race_condition_twenty_simultaneous_requests():
+    """
+    Critical concurrency stress test mandated by Master Prompt 2:
+    20 simultaneous requests compete for the EXACT same room and slot at the exact same instant.
+    Assert that exactly 1 succeeds and 19 fail with 409 Conflict.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    admin_token = get_auth_token("admin@ddugu.ac.in", "Admin@123")
+    rooms = client.get("/api/rooms").json()
+    room_iet29 = next(r for r in rooms if r["room_number"] == "IET29")
+    test_date = (date.today() + timedelta(days=35)).isoformat()
+
+    def make_booking_attempt(req_id: int):
+        c = TestClient(app)
+        payload = {
+            "room_id": room_iet29["id"],
+            "title": f"Concurrent Race Request #{req_id}",
+            "purpose": "EXTRA_LECTURE",
+            "date": test_date,
+            "start_time": "17:00",
+            "end_time": "18:00",
+            "expected_students": 45,
+            "is_test_data": True
+        }
+        resp = c.post(
+            "/api/bookings",
+            json=payload,
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        return resp.status_code
+
+    results = []
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(make_booking_attempt, i) for i in range(20)]
+        for fut in as_completed(futures):
+            results.append(fut.result())
+
+    success_count = results.count(200)
+    conflict_count = results.count(409)
+
+    assert success_count == 1, f"Expected exactly 1 successful booking under concurrency race, got {success_count} (results: {results})"
+    assert conflict_count == 19, f"Expected 19 conflict responses, got {conflict_count}"
+
+
+# --- TEST 19: Reconciliation Ledger & System Settings ---
+def test_19_reconciliation_ledger_and_system_settings():
+    admin_token = get_auth_token("admin@ddugu.ac.in", "Admin@123")
+    
+    # 1. Reconciliation ledger
+    ledger_res = client.get("/api/reconciliation/ledger", headers={"Authorization": f"Bearer {admin_token}"})
+    assert ledger_res.status_code == 200
+    ledger_data = ledger_res.json()
+    assert len(ledger_data["table_9_reconciliations"]) == 5
+    assert ledger_data["summary"]["total_recorded_spaces"] == 34
+    assert ledger_data["summary"]["total_bookable_rooms"] == 30
+
+    # 2. System settings
+    settings_res = client.get("/api/reconciliation/settings", headers={"Authorization": f"Bearer {admin_token}"})
+    assert settings_res.status_code == 200
+    settings = {s["key"]: s["value"] for s in settings_res.json()}
+    assert "inter_building_walking_buffer_seconds" in settings
+    assert settings["inter_building_walking_buffer_seconds"] == "600"
+    assert settings["exam_seating_ratio"] == "0.5"
+

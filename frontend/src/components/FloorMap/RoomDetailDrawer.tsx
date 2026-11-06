@@ -107,23 +107,33 @@ export const RoomDetailDrawer: React.FC<RoomDetailDrawerProps> = ({
         )}
 
         {/* Capacity & Type Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-100">
-            <div className="flex items-center gap-2 text-blue-700 text-xs font-semibold mb-1 uppercase tracking-wider">
-              <Users className="w-4 h-4" /> Capacity
+        <div className="grid grid-cols-3 gap-2.5">
+          <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-100">
+            <div className="flex items-center gap-1.5 text-blue-700 text-[10px] font-bold mb-1 uppercase tracking-wider">
+              <Users className="w-3.5 h-3.5" /> Nominal
             </div>
-            <div className="text-2xl font-extrabold text-blue-900">{room.capacity}</div>
-            <div className="text-xs text-blue-600 font-medium">Students Max</div>
+            <div className="text-xl font-extrabold text-blue-900">{room.capacity}</div>
+            <div className="text-[10px] text-blue-600 font-medium">Lectures</div>
           </div>
 
-          <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-100">
-            <div className="flex items-center gap-2 text-indigo-700 text-xs font-semibold mb-1 uppercase tracking-wider">
-              <MapPin className="w-4 h-4" /> Type
+          <div className="p-3.5 rounded-xl bg-amber-50/60 border border-amber-200">
+            <div className="flex items-center gap-1.5 text-amber-700 text-[10px] font-bold mb-1 uppercase tracking-wider">
+              <ShieldCheck className="w-3.5 h-3.5" /> Exam Cap
             </div>
-            <div className="text-base font-bold text-indigo-900 truncate">
+            <div className="text-xl font-extrabold text-amber-900">
+              {room.exam_capacity || Math.floor(room.capacity * 0.5)}
+            </div>
+            <div className="text-[10px] text-amber-700 font-medium">50% Spaced</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-100">
+            <div className="flex items-center gap-1.5 text-indigo-700 text-[10px] font-bold mb-1 uppercase tracking-wider">
+              <MapPin className="w-3.5 h-3.5" /> Type
+            </div>
+            <div className="text-xs font-bold text-indigo-900 truncate mt-1">
               {room.room_type.replace('_', ' ')}
             </div>
-            <div className="text-xs text-indigo-600 font-medium">Official Classification</div>
+            <div className="text-[10px] text-indigo-600 font-medium truncate">Category</div>
           </div>
         </div>
 

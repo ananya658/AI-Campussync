@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
 from backend.app.database import SessionLocal, engine, Base
-from backend.app.models import Branch, Batch, Student, User, Building, Floor, Room, RoomFacility
+from backend.app.models import Branch, Batch, Student, User, Building, Floor, Room, RoomFacility, Section
 from backend.app.auth import hash_password
 
 def import_students_from_csv(db: Session, csv_path: str) -> int:
@@ -58,11 +58,15 @@ def import_students_from_csv(db: Session, csv_path: str) -> int:
             db.add(new_user)
             db.flush()
 
+            sec_code = f"{branch_code}-{int(row.get('year', 1))}{row.get('section', 'A').strip().upper()}"
+            sec_obj = db.query(Section).filter(Section.code == sec_code).first()
+
             new_student = Student(
                 user_id=new_user.id,
                 roll_number=roll,
                 branch_id=branch.id,
                 batch_id=batch.id if batch else 1,
+                section_id=sec_obj.id if sec_obj else None,
                 year=int(row.get("year", 1)),
                 section=row.get("section", "A").strip().upper()
             )

@@ -126,16 +126,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               Deeksha Bhawan Blueprint Discrepancy Flag (LH13 & LH14)
             </h4>
             <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
-              2 rooms on the structural floor plan are flagged as pending verification. They remain isolated from general booking until you authorize them.
+              2 rooms on the structural floor plan are flagged as pending verification (Table 9 Ledger). They remain isolated from general booking until you authorize them.
             </p>
           </div>
         </div>
-        <button
-          onClick={() => onNavigate('admin-buildings')}
-          className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs shadow-sm transition-all whitespace-nowrap self-start md:self-auto"
-        >
-          Review Verification →
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onNavigate('admin-reconciliation')}
+            className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs shadow-sm transition-all whitespace-nowrap self-start md:self-auto"
+          >
+            Open Reconciliation Ledger (Table 9) →
+          </button>
+        </div>
       </div>
 
       {/* Two Column Grid: Recent Bookings & Pending Student Discrepancies */}

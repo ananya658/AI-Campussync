@@ -3,7 +3,16 @@ import {
   IssueReport, NotificationItem, AuditLogItem, AISearchResponse, AnalyticsSummary 
 } from '../types';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+
+function buildUrl(path: string): URL {
+  if (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) {
+    const cleanBase = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
+    const cleanPath = path.startsWith('/') ? path : '/' + path;
+    return new URL(`${cleanBase}${cleanPath}`);
+  }
+  return new URL(`${window.location.origin}${API_BASE}${path.startsWith('/') ? path : '/' + path}`);
+}
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('campussync_token');
@@ -57,7 +66,7 @@ export const api = {
     target_date?: string;
     target_time?: string;
   }): Promise<Room[]> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/rooms`);
+    const url = buildUrl('/rooms');
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') {
@@ -81,7 +90,7 @@ export const api = {
     room_type?: string;
     facility_needed?: string;
   }): Promise<Array<{ room: Room; is_available: boolean; status: string; conflict_reason?: string }>> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/rooms/availability`);
+    const url = buildUrl('/rooms/availability');
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== '') {
         url.searchParams.append(k, String(v));
@@ -106,7 +115,7 @@ export const api = {
   },
 
   verifyRoomDiscrepancy: async (roomId: number, verified_status: string, admin_notes?: string): Promise<Room> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/rooms/${roomId}/verify`);
+    const url = buildUrl(`/rooms/${roomId}/verify`);
     url.searchParams.append('verified_status', verified_status);
     if (admin_notes) url.searchParams.append('admin_notes', admin_notes);
 
@@ -125,7 +134,7 @@ export const api = {
     is_test_data?: boolean;
     my_bookings_only?: boolean;
   }): Promise<Booking[]> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/bookings`);
+    const url = buildUrl('/bookings');
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') {
@@ -331,7 +340,7 @@ export const api = {
 
   // --- Audit Logs ---
   getAuditLogs: async (params?: { entity_type?: string; action_type?: string; limit?: number }): Promise<AuditLogItem[]> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/audit-logs`);
+    const url = buildUrl('/audit-logs');
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') {
@@ -352,5 +361,101 @@ export const api = {
     });
     return handleResponse(res);
   },
+
+  // --- Split Sitting (Hackathon Advanced Scheduling) ---
+  getSplitPlan: async (params: {
+    building_id: number;
+    total_candidates: number;
+    date: string;
+    start_time: string;
+    end_time: string;
+  }): Promise<{
+    strategy: string;
+    total_candidates: number;
+    room_1: { id: number; room_number: string; exam_capacity: number; building_id: number };
+    room_2: { id: number; room_number: string; exam_capacity: number; building_id: number };
+    total_exam_seats: number;
+    notes: string;
+  }> => {
+    const url = buildUrl('/bookings/split-plan');
+    Object.entries(params).forEach(([k, v]) => {
+      url.searchParams.append(k, String(v));
+    });
+    const res = await fetch(url.toString(), {
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse(res);
+  },
+
+  createSplitBooking: async (data: {
+    booking_1: any;
+    booking_2: any;
+  }): Promise<{
+    message: string;
+    booking_1: Booking;
+    booking_2: Booking;
+  }> => {
+    const res = await fetch(`${API_BASE}/bookings/split-booking`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
+  },
+
+  // --- Generic HTTP Methods for Dynamic & Reconciliation Endpoints ---
+  get: async <T = any>(endpoint: string, _config?: any): Promise<{ data: T }> => {
+    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
+    const res = await fetch(cleanPath, {
+      headers: { ...getAuthHeader() },
+    });
+    const data = await handleResponse<T>(res);
+    return { data };
+  },
+
+  post: async <T = any>(endpoint: string, body?: any, _config?: any): Promise<{ data: T }> => {
+    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
+    const headers: Record<string, string> = { ...getAuthHeader() };
+    const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+    if (!isFormData) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const res = await fetch(cleanPath, {
+      method: 'POST',
+      headers,
+      body: isFormData ? body : JSON.stringify(body),
+    });
+    const data = await handleResponse<T>(res);
+    return { data };
+  },
+
+  put: async <T = any>(endpoint: string, body?: any, _config?: any): Promise<{ data: T }> => {
+    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
+    const res = await fetch(cleanPath, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await handleResponse<T>(res);
+    return { data };
+  },
+
+  delete: async <T = any>(endpoint: string, _config?: any): Promise<{ data: T }> => {
+    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
+    const res = await fetch(cleanPath, {
+      method: 'DELETE',
+      headers: { ...getAuthHeader() },
+    });
+    const data = await handleResponse<T>(res);
+    return { data };
+  },
 };
+
+export default api;
 

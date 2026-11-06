@@ -44,6 +44,10 @@ export interface Room {
   room_name: string;
   room_type: 'LECTURE_HALL' | 'LAB' | 'SEMINAR_HALL' | 'OFFICE' | 'LIBRARY';
   capacity: number;
+  exam_capacity?: number;
+  is_bookable?: boolean;
+  is_unconfirmed?: boolean;
+  unconfirmed_reason?: string;
   is_active: boolean;
   is_maintenance: boolean;
   verification_status: 'OFFICIAL_VERIFIED' | 'PENDING_ADMIN_VERIFICATION' | 'RESTRICTED';
@@ -100,6 +104,9 @@ export interface Booking {
   batch_id?: number;
   section?: string;
   additional_requirements?: string;
+  is_split_sitting?: boolean;
+  linked_booking_id?: number;
+  split_role?: string;
   status: 'CONFIRMED' | 'PENDING_APPROVAL' | 'CANCELLED' | 'REJECTED' | 'COMPLETED';
   is_test_data: boolean;
   cancellation_reason?: string;
@@ -273,4 +280,37 @@ export interface AnalyticsSummary {
     utilization_pct: number;
   }>;
 }
+
+export interface SystemSetting {
+  id: number;
+  key: string;
+  value: string;
+  category: string;
+  description?: string;
+  updated_at: string;
+}
+
+export interface RoomClosure {
+  id: number;
+  room_id: number;
+  room_number?: string;
+  title: string;
+  reason: string;
+  start_time: string;
+  end_time: string;
+  is_active: boolean;
+  created_at: string;
+  created_by_name?: string;
+}
+
+export interface ReconciliationItem {
+  id: number;
+  title: string;
+  disagreement: string;
+  decision: string;
+  rationale: string;
+  affected_rooms: string[];
+  status: string;
+}
+
 

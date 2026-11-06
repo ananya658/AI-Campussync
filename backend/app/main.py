@@ -1,21 +1,32 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import settings
 from backend.app.database import engine, Base
 from backend.app.seed import seed_database
 from backend.app.routers import (
-    auth, buildings, rooms, bookings, schedules, announcements, reports, ai, audit, analytics, notifications
+    auth, buildings, rooms, bookings, schedules, announcements, reports, ai, audit, analytics, notifications, reconciliation
 )
 
 # Initialize database schema
 Base.metadata.create_all(bind=engine)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: ensure seed data exists
+    try:
+        seed_database()
+    except Exception as e:
+        print(f"Startup seed notice: {e}")
+    yield
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Smart Campus. Smarter Scheduling. Official intelligent classroom allocation platform for GDG BUILD WITH AI: DevOps 2026, DDUGU.",
     version=settings.VERSION,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -34,14 +45,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Startup event: ensure seed data exists
-@app.on_event("startup")
-def on_startup():
-    try:
-        seed_database()
-    except Exception as e:
-        print(f"Startup seed notice: {e}")
 
 # Health Check Endpoint
 @app.get("/api/health")
@@ -65,6 +68,7 @@ app.include_router(ai.router, prefix=settings.API_V1_STR)
 app.include_router(audit.router, prefix=settings.API_V1_STR)
 app.include_router(analytics.router, prefix=settings.API_V1_STR)
 app.include_router(notifications.router, prefix=settings.API_V1_STR)
+app.include_router(reconciliation.router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     import uvicorn

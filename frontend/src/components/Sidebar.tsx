@@ -36,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'admin-dashboard', label: 'Overview Dashboard', icon: LayoutDashboard },
       { id: 'interactive-map', label: 'Interactive Floor Map', icon: Map },
       { id: 'admin-buildings', label: 'Buildings & Rooms', icon: Building2 },
+      { id: 'admin-reconciliation', label: 'Reconciliation Ledger', icon: Layers, badge: 'Table 9' },
       { id: 'admin-bookings', label: 'Booking Requests', icon: Calendar },
       { id: 'admin-schedules', label: 'Academic Timetables', icon: Clock },
       { id: 'admin-announcements', label: 'Notices & Exams', icon: Megaphone },

@@ -20,6 +20,10 @@ def format_room(r: Room, current_status: str = "AVAILABLE", active_booking: Opti
         "room_name": r.room_name,
         "room_type": r.room_type,
         "capacity": r.capacity,
+        "exam_capacity": getattr(r, "exam_capacity", int(r.capacity * 0.5)),
+        "is_bookable": getattr(r, "is_bookable", True),
+        "is_unconfirmed": getattr(r, "is_unconfirmed", False),
+        "unconfirmed_reason": getattr(r, "unconfirmed_reason", None),
         "is_active": r.is_active,
         "is_maintenance": r.is_maintenance,
         "verification_status": r.verification_status,
@@ -207,7 +211,7 @@ def update_room(
 @router.post("/{room_id}/verify", response_model=RoomResponse)
 def verify_blueprint_discrepancy_room(
     room_id: int,
-    verified_status: str = Query("OFFICIAL_VERIFIED", regex="^(OFFICIAL_VERIFIED|RESTRICTED)$"),
+    verified_status: str = Query("OFFICIAL_VERIFIED", pattern="^(OFFICIAL_VERIFIED|RESTRICTED)$"),
     admin_notes: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(["ADMIN"]))

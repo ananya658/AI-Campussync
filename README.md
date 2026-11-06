@@ -179,14 +179,14 @@ docker compose up --build -d
 
 ---
 
-## 🧪 9. Automated Test Suite (12 Suites / 100% Passing)
+## 🧪 9. Automated Test Suite (19 Suites / 100% Passing)
 
-Automated tests cover all critical functional and security workflows:
+Automated tests cover all critical functional, concurrency, and security workflows:
 1. `test_01_successful_login`: Validates JWT token issuance and role claims.
-2. `test_02_unauthorized_access`: Rejects missing or forged credentials.
-3. `test_03_room_availability`: Queries live database availability.
+2. `test_02_unauthorized_access`: Rejects missing or forged credentials (401).
+3. `test_03_room_availability`: Queries live database availability without mock delays.
 4. `test_04_successful_booking`: Creates valid classroom reservation.
-5. `test_05_overlapping_booking_rejection`: Enforces `existing_start < new_end AND existing_end > new_start` conflict rejection.
+5. `test_05_overlapping_booking_rejection`: Enforces interval overlap rejection (`409 Conflict`).
 6. `test_06_invalid_time_range`: Validates start time strictly before end time.
 7. `test_07_insufficient_room_capacity`: Prevents reservations exceeding room capacity.
 8. `test_08_cancelled_booking_frees_availability`: Validates that cancelled bookings free up slots immediately.
@@ -194,6 +194,13 @@ Automated tests cover all critical functional and security workflows:
 10. `test_10_announcement_publishing_and_versions`: Validates notice publication and version history generation.
 11. `test_11_student_report_and_resolution`: Tests student discrepancy tickets and administrative resolution notes.
 12. `test_12_ai_recommendation_engine`: Validates NLP query extraction, constraint verification, and scoring against the database.
+13. `test_13_half_open_interval_back_to_back`: Proves half-open intervals `[start, end)` allow back-to-back bookings (e.g. 17:00–18:00 and 18:00–19:00 in same room).
+14. `test_14_dimension2_section_collision_rejection`: Prevents double-booking the same academic section across multiple rooms or timetable slots.
+15. `test_15_dimension3_faculty_collision_rejection`: Prevents faculty double-booking in two classrooms simultaneously.
+16. `test_16_spaced_examination_capacity_rejection`: Enforces 50% spacing ratio for examinations (rejects 75 candidates in 75-cap hall with 409) and validates split-sitting plan calculation.
+17. `test_17_atomic_split_booking`: Creates dual linked bookings (`PRIMARY` and `SECONDARY`) across paired halls atomically.
+18. `test_18_concurrency_race_condition_20_threads`: **20 concurrent threads** simultaneously attempt booking the exact same slot; asserts **exactly 1 succeeds** and **19 fail with 409 Conflict**.
+19. `test_19_reconciliation_ledger_and_system_settings`: Verifies Table 9 reconciliation ledger and system buffer settings persistence.
 
 Run tests:
 ```bash
@@ -202,7 +209,58 @@ PYTHONPATH=. ./backend/venv/bin/pytest backend/tests/test_campus_sync.py -v
 
 ---
 
-## 📄 10. API Endpoints Overview
+## 🗄️ 10. PostgreSQL Setup & Database Maintenance (Neon / Supabase)
+
+CampusSync AI supports real PostgreSQL databases out-of-the-box (Neon, Supabase, AWS RDS, Docker) as well as automated fallback to SQLite:
+
+### A. Neon / Supabase Connection
+1. Set `DATABASE_URL` in `.env`:
+   ```bash
+   # Neon PostgreSQL
+   DATABASE_URL="postgresql://neondb_owner:password@ep-cool-frost-123456.us-east-2.aws.neon.tech/neondb?sslmode=require"
+   
+   # Supabase PostgreSQL
+   DATABASE_URL="postgresql://postgres.xxx:password@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
+   ```
+2. Initialize and seed schema:
+   ```bash
+   PYTHONPATH=. python -m backend.app.seed --force
+   ```
+
+### B. Database Backup & Disaster Recovery
+- **Create Backup**:
+  ```bash
+  # PostgreSQL Dump
+  pg_dump "$DATABASE_URL" -F c -b -v -f campussync_backup_$(date +%Y%m%d).dump
+  
+  # SQLite Backup
+  sqlite3 campussync.db ".backup 'campussync_backup_$(date +%Y%m%d).db'"
+  ```
+- **Rollback / Restore**:
+  ```bash
+  # PostgreSQL Restore
+  pg_restore -d "$DATABASE_URL" -v -c campussync_backup_20261106.dump
+  
+  # SQLite Restore
+  cp campussync_backup_20261106.db campussync.db
+  ```
+
+---
+
+## 🌐 11. Vercel Frontend Deployment
+
+Deploy the React Vite frontend to Vercel in 2 minutes:
+1. Connect repository to [Vercel](https://vercel.com).
+2. Set Root Directory to `./` (or `frontend`).
+3. Build Command: `cd frontend && npm run build` (or `npm run build` if Root is `frontend`).
+4. Output Directory: `frontend/dist` (or `dist`).
+5. Configure Environment Variables:
+   - `VITE_API_BASE_URL`: URL of your deployed FastAPI backend (e.g. `https://campussync-backend.onrender.com/api`).
+6. The included `vercel.json` automatically manages client-side SPA routing rewrites.
+
+---
+
+## 📄 12. API Endpoints Overview
 
 | Method | Endpoint | Description | Auth Required |
 |---|---|---|---|
