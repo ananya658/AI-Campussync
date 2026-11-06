@@ -3,7 +3,19 @@ import {
   IssueReport, NotificationItem, AuditLogItem, AISearchResponse, AnalyticsSummary 
 } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const configuredApiBase = import.meta.env.VITE_API_BASE_URL?.trim();
+const defaultApiBase = import.meta.env.PROD
+  ? 'https://campussync-api.onrender.com/api'
+  : '/api';
+const selectedApiBase = (
+  configuredApiBase && (!import.meta.env.PROD || /^https?:\/\//i.test(configuredApiBase))
+    ? configuredApiBase
+    : defaultApiBase
+).replace(/\/+$/, '');
+const API_BASE = /^https?:\/\//i.test(selectedApiBase) && !selectedApiBase.endsWith('/api')
+  ? `${selectedApiBase}/api`
+  : selectedApiBase;
+export const API_BASE_URL = API_BASE;
 
 export interface BookingAlternative {
   room_id: number;
@@ -35,6 +47,12 @@ function buildUrl(path: string): URL {
     return new URL(`${cleanBase}${cleanPath}`);
   }
   return new URL(`${window.location.origin}${API_BASE}${path.startsWith('/') ? path : '/' + path}`);
+}
+
+function buildEndpointUrl(endpoint: string): string {
+  if (/^https?:\/\//i.test(endpoint)) return endpoint;
+  const path = endpoint.startsWith('/api/') ? endpoint.slice(4) : endpoint;
+  return buildUrl(path).toString();
 }
 
 function getAuthHeader(): Record<string, string> {
@@ -71,7 +89,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 export const api = {
   // --- Auth ---
   login: async (email: string, password: string): Promise<{ access_token: string; user: User }> => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await fetch(buildUrl('/auth/login').toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -80,7 +98,7 @@ export const api = {
   },
 
   getMe: async (): Promise<User> => {
-    const res = await fetch(`${API_BASE}/auth/me`, {
+    const res = await fetch(buildUrl('/auth/me').toString(), {
       headers: { ...getAuthHeader() },
     });
     return handleResponse(res);
@@ -88,14 +106,14 @@ export const api = {
 
   // --- Buildings & Rooms ---
   getBuildings: async (): Promise<Building[]> => {
-    const res = await fetch(`${API_BASE}/buildings`, {
+    const res = await fetch(buildUrl('/buildings').toString(), {
       headers: { ...getAuthHeader() },
     });
     return handleResponse(res);
   },
 
   getBranches: async (): Promise<Branch[]> => {
-    const res = await fetch(`${API_BASE}/branches`, {
+    const res = await fetch(buildUrl('/branches').toString(), {
       headers: { ...getAuthHeader() },
     });
     return handleResponse(res);
@@ -154,7 +172,7 @@ export const api = {
   },
 
   updateRoom: async (roomId: number, data: Partial<Room>): Promise<Room> => {
-    const res = await fetch(`${API_BASE}/rooms/${roomId}`, {
+    const res = await fetch(buildUrl(`/rooms/${roomId}`).toString(), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -216,7 +234,7 @@ export const api = {
     additional_requirements?: string;
     is_test_data?: boolean;
   }): Promise<Booking> => {
-    const res = await fetch(`${API_BASE}/bookings`, {
+    const res = await fetch(buildUrl('/bookings').toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -228,7 +246,7 @@ export const api = {
   },
 
   cancelBooking: async (bookingId: number, reason: string): Promise<Booking> => {
-    const res = await fetch(`${API_BASE}/bookings/${bookingId}/cancel`, {
+    const res = await fetch(buildUrl(`/bookings/${bookingId}/cancel`).toString(), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -240,7 +258,7 @@ export const api = {
   },
 
   updateBookingStatus: async (bookingId: number, status: string, reason?: string): Promise<Booking> => {
-    const res = await fetch(`${API_BASE}/bookings/${bookingId}/status`, {
+    const res = await fetch(buildUrl(`/bookings/${bookingId}/status`).toString(), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -253,7 +271,7 @@ export const api = {
 
   // --- Schedules ---
   getMySchedule: async (): Promise<Schedule[]> => {
-    const res = await fetch(`${API_BASE}/schedules/me`, {
+    const res = await fetch(buildUrl('/schedules/me').toString(), {
       headers: { ...getAuthHeader() },
     });
     return handleResponse(res);
@@ -265,7 +283,7 @@ export const api = {
     section?: string;
     day_of_week?: number;
   }): Promise<Schedule[]> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/schedules`);
+    const url = buildUrl('/schedules');
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') {
@@ -280,7 +298,7 @@ export const api = {
   },
 
   updateSchedule: async (scheduleId: number, data: Partial<Schedule>): Promise<Schedule> => {
-    const res = await fetch(`${API_BASE}/schedules/${scheduleId}`, {
+    const res = await fetch(buildUrl(`/schedules/${scheduleId}`).toString(), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -303,7 +321,7 @@ export const api = {
 
   // --- Announcements ---
   getAnnouncements: async (typeFilter?: string): Promise<Announcement[]> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/announcements`);
+    const url = buildUrl('/announcements');
     if (typeFilter) url.searchParams.append('type', typeFilter);
     const res = await fetch(url.toString(), {
       headers: { ...getAuthHeader() },
@@ -312,7 +330,7 @@ export const api = {
   },
 
   createAnnouncement: async (data: any): Promise<Announcement> => {
-    const res = await fetch(`${API_BASE}/announcements`, {
+    const res = await fetch(buildUrl('/announcements').toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -324,7 +342,7 @@ export const api = {
   },
 
   updateAnnouncement: async (id: number, data: any): Promise<Announcement> => {
-    const res = await fetch(`${API_BASE}/announcements/${id}`, {
+    const res = await fetch(buildUrl(`/announcements/${id}`).toString(), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -337,7 +355,7 @@ export const api = {
 
   // --- Reports ---
   getReports: async (statusFilter?: string): Promise<IssueReport[]> => {
-    const url = new URL(`${window.location.origin}${API_BASE}/reports`);
+    const url = buildUrl('/reports');
     if (statusFilter) url.searchParams.append('status', statusFilter);
     const res = await fetch(url.toString(), {
       headers: { ...getAuthHeader() },
@@ -353,7 +371,7 @@ export const api = {
     scheduled_date?: string;
     scheduled_time?: string;
   }): Promise<IssueReport> => {
-    const res = await fetch(`${API_BASE}/reports`, {
+    const res = await fetch(buildUrl('/reports').toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -365,7 +383,7 @@ export const api = {
   },
 
   resolveReport: async (id: number, status: string, admin_resolution_note: string): Promise<IssueReport> => {
-    const res = await fetch(`${API_BASE}/reports/${id}/resolve`, {
+    const res = await fetch(buildUrl(`/reports/${id}/resolve`).toString(), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -378,14 +396,14 @@ export const api = {
 
   // --- Notifications ---
   getNotifications: async (): Promise<NotificationItem[]> => {
-    const res = await fetch(`${API_BASE}/notifications`, {
+    const res = await fetch(buildUrl('/notifications').toString(), {
       headers: { ...getAuthHeader() },
     });
     return handleResponse(res);
   },
 
   markNotificationRead: async (id: number): Promise<NotificationItem> => {
-    const res = await fetch(`${API_BASE}/notifications/${id}/read`, {
+    const res = await fetch(buildUrl(`/notifications/${id}/read`).toString(), {
       method: 'PATCH',
       headers: { ...getAuthHeader() },
     });
@@ -393,7 +411,7 @@ export const api = {
   },
 
   markAllNotificationsRead: async (): Promise<{ message: string }> => {
-    const res = await fetch(`${API_BASE}/notifications/read-all`, {
+    const res = await fetch(buildUrl('/notifications/read-all').toString(), {
       method: 'PATCH',
       headers: { ...getAuthHeader() },
     });
@@ -402,7 +420,7 @@ export const api = {
 
   // --- AI Smart Assistant ---
   aiSearch: async (query: string): Promise<AISearchResponse> => {
-    const res = await fetch(`${API_BASE}/ai/search`, {
+    const res = await fetch(buildUrl('/ai/search').toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -431,7 +449,7 @@ export const api = {
 
   // --- Analytics ---
   getAnalytics: async (): Promise<AnalyticsSummary> => {
-    const res = await fetch(`${API_BASE}/analytics/dashboard`, {
+    const res = await fetch(buildUrl('/analytics/dashboard').toString(), {
       headers: { ...getAuthHeader() },
     });
     return handleResponse(res);
@@ -470,7 +488,7 @@ export const api = {
     booking_1: Booking;
     booking_2: Booking;
   }> => {
-    const res = await fetch(`${API_BASE}/bookings/split-booking`, {
+    const res = await fetch(buildUrl('/bookings/split-booking').toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -483,8 +501,7 @@ export const api = {
 
   // --- Generic HTTP Methods for Dynamic & Reconciliation Endpoints ---
   get: async <T = any>(endpoint: string, _config?: any): Promise<{ data: T }> => {
-    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
-    const res = await fetch(cleanPath, {
+    const res = await fetch(buildEndpointUrl(endpoint), {
       headers: { ...getAuthHeader() },
     });
     const data = await handleResponse<T>(res);
@@ -492,13 +509,13 @@ export const api = {
   },
 
   post: async <T = any>(endpoint: string, body?: any, _config?: any): Promise<{ data: T }> => {
-    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
+    const url = buildEndpointUrl(endpoint);
     const headers: Record<string, string> = { ...getAuthHeader() };
     const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
     if (!isFormData) {
       headers['Content-Type'] = 'application/json';
     }
-    const res = await fetch(cleanPath, {
+    const res = await fetch(url, {
       method: 'POST',
       headers,
       body: isFormData ? body : JSON.stringify(body),
@@ -508,8 +525,7 @@ export const api = {
   },
 
   put: async <T = any>(endpoint: string, body?: any, _config?: any): Promise<{ data: T }> => {
-    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
-    const res = await fetch(cleanPath, {
+    const res = await fetch(buildEndpointUrl(endpoint), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -522,8 +538,7 @@ export const api = {
   },
 
   delete: async <T = any>(endpoint: string, _config?: any): Promise<{ data: T }> => {
-    const cleanPath = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`);
-    const res = await fetch(cleanPath, {
+    const res = await fetch(buildEndpointUrl(endpoint), {
       method: 'DELETE',
       headers: { ...getAuthHeader() },
     });

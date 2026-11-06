@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NotificationItem } from '../types';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Bell, CheckCheck, Clock, Calendar, AlertCircle } from 'lucide-react';
 
@@ -42,7 +42,7 @@ export const NotificationCenter: React.FC = () => {
     }
 
     try {
-      const apiBaseUrl = new URL(import.meta.env.VITE_API_BASE_URL || '/api', window.location.origin);
+      const apiBaseUrl = new URL(API_BASE_URL, window.location.origin);
       apiBaseUrl.protocol = apiBaseUrl.protocol === 'https:' ? 'wss:' : 'ws:';
       const socketUrl = new URL(`/ws/notifications/${user.id}`, apiBaseUrl);
       socketUrl.searchParams.set('token', token);
