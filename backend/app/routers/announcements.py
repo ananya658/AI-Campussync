@@ -2,9 +2,9 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, and_, or_
 from backend.app.database import get_db
-from backend.app.models import Announcement, AnnouncementVersion, User, Student, Room, Building
+from backend.app.models import Announcement, AnnouncementVersion, User, Student, Room, Building, Branch, Batch, Section
 from backend.app.schemas import (
     AnnouncementCreate, AnnouncementUpdate, AnnouncementResponse, AnnouncementVersionResponse
 )
@@ -13,6 +13,61 @@ from backend.app.services.audit_service import AuditService
 from backend.app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/announcements", tags=["Announcements"])
+
+
+def _validate_audience(
+    db: Session,
+    branch_id: Optional[int],
+    year: Optional[int],
+    batch_id: Optional[int],
+    section: Optional[str],
+) -> None:
+    if year is not None and year not in {1, 2, 3, 4}:
+        raise HTTPException(status_code=422, detail="target_year must be between 1 and 4.")
+    if branch_id is not None and not db.query(Branch.id).filter(Branch.id == branch_id).first():
+        raise HTTPException(status_code=404, detail="Target branch not found.")
+    if batch_id is not None and not db.query(Batch.id).filter(Batch.id == batch_id).first():
+        raise HTTPException(status_code=404, detail="Target batch not found.")
+    if section and section.upper() != "ALL":
+        sections = db.query(Section.id).filter(Section.section_name == section.upper())
+        if branch_id is not None:
+            sections = sections.filter(Section.branch_id == branch_id)
+        if year is not None:
+            sections = sections.filter(Section.academic_year == year)
+        if not sections.first():
+            raise HTTPException(status_code=422, detail="The target section does not exist for that audience.")
+
+
+def _visible_announcements(db: Session, current_user: User):
+    query = db.query(Announcement)
+    if current_user.role == "ADMIN":
+        return query
+    if current_user.role == "FACULTY":
+        return query.filter(
+            or_(
+                Announcement.status == "PUBLISHED",
+                and_(
+                    Announcement.created_by_id == current_user.id,
+                    Announcement.status != "ARCHIVED",
+                ),
+            )
+        )
+    if current_user.role == "STUDENT":
+        student = db.query(Student).filter(Student.user_id == current_user.id).first()
+        if not student:
+            return query.filter(Announcement.id == -1)
+        return query.filter(
+            Announcement.status == "PUBLISHED",
+            or_(Announcement.target_branch_id.is_(None), Announcement.target_branch_id == student.branch_id),
+            or_(Announcement.target_year.is_(None), Announcement.target_year == student.year),
+            or_(Announcement.target_batch_id.is_(None), Announcement.target_batch_id == student.batch_id),
+            or_(
+                Announcement.target_section.is_(None),
+                Announcement.target_section == "ALL",
+                Announcement.target_section == student.section,
+            ),
+        )
+    return query.filter(Announcement.id == -1)
 
 def format_announcement(a: Announcement) -> dict:
     return {
@@ -61,17 +116,7 @@ def get_announcements(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    query = db.query(Announcement).filter(Announcement.status != "ARCHIVED")
-
-    # If student, show notices relevant to their branch/year or general notices
-    if current_user.role == "STUDENT":
-        student = db.query(Student).filter(Student.user_id == current_user.id).first()
-        if student:
-            # Show either general notices or targeted to their branch/year
-            query = query.filter(
-                (Announcement.target_branch_id == None) | (Announcement.target_branch_id == student.branch_id),
-                (Announcement.target_year == None) | (Announcement.target_year == student.year)
-            )
+    query = _visible_announcements(db, current_user)
 
     if type_filter:
         query = query.filter(Announcement.announcement_type == type_filter)
@@ -81,7 +126,7 @@ def get_announcements(
 
 @router.get("/{announcement_id}", response_model=AnnouncementResponse)
 def get_announcement(announcement_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    a = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    a = _visible_announcements(db, current_user).filter(Announcement.id == announcement_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Announcement not found")
     return format_announcement(a)
@@ -92,6 +137,17 @@ def create_announcement(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(["ADMIN", "FACULTY"]))
 ):
+    if ann_in.status not in {"PUBLISHED", "DRAFT"}:
+        raise HTTPException(status_code=422, detail="Announcement status must be PUBLISHED or DRAFT.")
+    target_section = ann_in.target_section.strip().upper() if ann_in.target_section else None
+    _validate_audience(
+        db,
+        ann_in.target_branch_id,
+        ann_in.target_year,
+        ann_in.target_batch_id,
+        target_section,
+    )
+
     new_ann = Announcement(
         title=ann_in.title,
         description=ann_in.description,
@@ -104,7 +160,7 @@ def create_announcement(
         target_branch_id=ann_in.target_branch_id,
         target_year=ann_in.target_year,
         target_batch_id=ann_in.target_batch_id,
-        target_section=ann_in.target_section,
+        target_section=target_section,
         created_by_id=current_user.id,
         status=ann_in.status,
         version=1
@@ -141,18 +197,19 @@ def create_announcement(
         reason=f"Published notice: {new_ann.title}"
     )
 
-    # Broadcast notification to targeted students
-    notif_type = "EXAM_SCHEDULE_CHANGED" if "EXAM" in new_ann.announcement_type else "ANNOUNCEMENT"
-    NotificationService.notify_target_students(
-        db=db,
-        title=f"Official Notice: {new_ann.title}",
-        message=f"{new_ann.announcement_type.replace('_', ' ').title()}: {new_ann.description[:120]}...",
-        notification_type=notif_type,
-        branch_id=new_ann.target_branch_id,
-        year=new_ann.target_year,
-        section=new_ann.target_section,
-        link_url=f"/announcements/{new_ann.id}"
-    )
+    if new_ann.status == "PUBLISHED":
+        notif_type = "EXAM_SCHEDULE_CHANGED" if "EXAM" in new_ann.announcement_type else "ANNOUNCEMENT"
+        NotificationService.notify_target_students(
+            db=db,
+            title=f"Official Notice: {new_ann.title}",
+            message=f"{new_ann.announcement_type.replace('_', ' ').title()}: {new_ann.description[:120]}",
+            notification_type=notif_type,
+            branch_id=new_ann.target_branch_id,
+            year=new_ann.target_year,
+            section=new_ann.target_section,
+            batch_id=new_ann.target_batch_id,
+            link_url=f"/announcements/{new_ann.id}"
+        )
 
     return format_announcement(new_ann)
 
@@ -171,7 +228,18 @@ def update_announcement(
     if current_user.role == "FACULTY" and a.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Cannot edit announcements created by others.")
 
-    # Increment version
+    if ann_update.status is not None and ann_update.status not in {"PUBLISHED", "DRAFT", "ARCHIVED"}:
+        raise HTTPException(status_code=422, detail="Unsupported announcement status.")
+
+    old_status = a.status
+    old_target = {
+        "branch_id": a.target_branch_id,
+        "year": a.target_year,
+        "batch_id": a.target_batch_id,
+        "section": a.target_section,
+    }
+    old_schedule = (a.date, a.start_time, a.end_time, a.building_id, a.room_id)
+    old_content = (a.title, a.description)
     a.version += 1
     
     if ann_update.title is not None:
@@ -190,6 +258,16 @@ def update_announcement(
         a.room_id = ann_update.room_id
     if ann_update.status is not None:
         a.status = ann_update.status
+    if "target_branch_id" in ann_update.model_fields_set:
+        a.target_branch_id = ann_update.target_branch_id
+    if "target_year" in ann_update.model_fields_set:
+        a.target_year = ann_update.target_year
+    if "target_batch_id" in ann_update.model_fields_set:
+        a.target_batch_id = ann_update.target_batch_id
+    if "target_section" in ann_update.model_fields_set:
+        a.target_section = ann_update.target_section.strip().upper() if ann_update.target_section else None
+
+    _validate_audience(db, a.target_branch_id, a.target_year, a.target_batch_id, a.target_section)
 
     # Record version history
     ver = AnnouncementVersion(
@@ -215,21 +293,68 @@ def update_announcement(
         entity_type="ANNOUNCEMENT",
         entity_id=a.id,
         user=current_user,
-        new_value={"version": a.version, "summary": ann_update.change_summary},
+        previous_value={
+            "status": old_status,
+            "target": old_target,
+            "schedule": old_schedule,
+            "title": old_content[0],
+            "description": old_content[1],
+        },
+        new_value={
+            "version": a.version,
+            "summary": ann_update.change_summary,
+            "status": a.status,
+            "target": {
+                "branch_id": a.target_branch_id,
+                "year": a.target_year,
+                "batch_id": a.target_batch_id,
+                "section": a.target_section,
+            },
+            "schedule": (a.date, a.start_time, a.end_time, a.building_id, a.room_id),
+            "title": a.title,
+            "description": a.description,
+        },
         reason=f"Announcement updated (v{a.version}): {ann_update.change_summary}"
     )
 
-    # Critical requirement: When examination room/time changes, notify affected students prominently
-    NotificationService.notify_target_students(
-        db=db,
-        title=f"URGENT SCHEDULE CHANGE: {a.title} (v{a.version})",
-        message=f"Notice update: {ann_update.change_summary}. Please check your portal for updated room/time.",
-        notification_type="EXAM_SCHEDULE_CHANGED",
-        branch_id=a.target_branch_id,
-        year=a.target_year,
-        section=a.target_section,
-        link_url=f"/announcements/{a.id}"
-    )
+    new_target = {
+        "branch_id": a.target_branch_id,
+        "year": a.target_year,
+        "batch_id": a.target_batch_id,
+        "section": a.target_section,
+    }
+    if old_status == "PUBLISHED" and a.status == "ARCHIVED":
+        NotificationService.notify_target_students(
+            db=db,
+            title=f"Notice withdrawn: {a.title}",
+            message=f"This notice was withdrawn. {ann_update.change_summary}",
+            notification_type="EXAM_SCHEDULE_CHANGED",
+            **old_target,
+            link_url=f"/announcements/{a.id}",
+        )
+    elif a.status == "PUBLISHED" and (
+        old_status != "PUBLISHED"
+        or old_schedule != (a.date, a.start_time, a.end_time, a.building_id, a.room_id)
+        or old_content != (a.title, a.description)
+        or old_target != new_target
+    ):
+        if old_status == "PUBLISHED" and old_target != new_target:
+            NotificationService.notify_target_students(
+                db=db,
+                title=f"Notice audience updated: {a.title}",
+                message="A published notice is no longer targeted to your group. Check the student portal for current notices.",
+                notification_type="ANNOUNCEMENT",
+                **old_target,
+                link_url=f"/announcements/{a.id}",
+            )
+        NotificationService.notify_target_students(
+            db=db,
+            title=f"Schedule update: {a.title} (v{a.version})",
+            message=f"{ann_update.change_summary}. Open the notice to see the current details.",
+            notification_type="EXAM_SCHEDULE_CHANGED",
+            **new_target,
+            link_url=f"/announcements/{a.id}",
+        )
 
     return format_announcement(a)
 

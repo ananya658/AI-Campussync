@@ -1,5 +1,5 @@
 import { 
-  User, Building, Floor, Room, Booking, Schedule, Announcement, 
+  User, Building, Branch, AcademicSection, Floor, Room, Booking, Schedule, Announcement,
   IssueReport, NotificationItem, AuditLogItem, AISearchResponse, AnalyticsSummary 
 } from '../types';
 
@@ -94,6 +94,21 @@ export const api = {
     return handleResponse(res);
   },
 
+  getBranches: async (): Promise<Branch[]> => {
+    const res = await fetch(`${API_BASE}/branches`, {
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse(res);
+  },
+
+  getSections: async (branchId: number, academicYear: number): Promise<AcademicSection[]> => {
+    const url = buildUrl('/branches/sections');
+    url.searchParams.set('branch_id', String(branchId));
+    url.searchParams.set('academic_year', String(academicYear));
+    const res = await fetch(url.toString(), { headers: { ...getAuthHeader() } });
+    return handleResponse(res);
+  },
+
   getRooms: async (params?: {
     building_id?: number;
     floor_id?: number;
@@ -124,6 +139,7 @@ export const api = {
     required_capacity?: number;
     room_type?: string;
     facility_needed?: string;
+    purpose?: string;
   }): Promise<Array<{ room: Room; is_available: boolean; status: string; conflict_reason?: string }>> => {
     const url = buildUrl('/rooms/availability');
     Object.entries(params).forEach(([k, v]) => {
@@ -258,6 +274,28 @@ export const api = {
       });
     }
     const res = await fetch(url.toString(), {
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse(res);
+  },
+
+  updateSchedule: async (scheduleId: number, data: Partial<Schedule>): Promise<Schedule> => {
+    const res = await fetch(`${API_BASE}/schedules/${scheduleId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
+  },
+
+  cancelSchedule: async (scheduleId: number, reason: string): Promise<{ message: string; schedule_id: number }> => {
+    const url = buildUrl(`/schedules/${scheduleId}`);
+    url.searchParams.set('reason', reason);
+    const res = await fetch(url.toString(), {
+      method: 'DELETE',
       headers: { ...getAuthHeader() },
     });
     return handleResponse(res);

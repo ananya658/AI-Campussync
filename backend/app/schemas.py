@@ -112,6 +112,24 @@ class BuildingResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class BranchResponse(BaseModel):
+    id: int
+    code: str
+    name: str
+    total_capacity: int
+    description: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class AcademicSectionResponse(BaseModel):
+    id: int
+    branch_id: int
+    academic_year: int
+    section_name: str
+    student_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
 # --- Room Availability & Search Schemas ---
 class RoomAvailabilityQuery(BaseModel):
     date: dt_date
@@ -119,9 +137,10 @@ class RoomAvailabilityQuery(BaseModel):
     end_time: dt_time
     building_id: Optional[int] = None
     floor_id: Optional[int] = None
-    required_capacity: Optional[int] = None
+    required_capacity: Optional[int] = Field(default=None, ge=1)
     room_type: Optional[str] = None
     facility_needed: Optional[str] = None
+    purpose: Optional[str] = None
 
 class RoomAvailabilityResult(BaseModel):
     room: RoomResponse
@@ -138,7 +157,7 @@ class BookingCreate(BaseModel):
     date: dt_date
     start_time: dt_time
     end_time: dt_time
-    expected_students: int
+    expected_students: int = Field(ge=1)
     branch_id: Optional[int] = None
     academic_year: Optional[int] = None
     batch_id: Optional[int] = None
@@ -299,6 +318,10 @@ class AnnouncementUpdate(BaseModel):
     building_id: Optional[int] = None
     room_id: Optional[int] = None
     status: Optional[str] = None
+    target_branch_id: Optional[int] = None
+    target_year: Optional[int] = None
+    target_batch_id: Optional[int] = None
+    target_section: Optional[str] = None
     change_summary: str = "Details updated"
 
 class AnnouncementVersionResponse(BaseModel):
@@ -410,7 +433,7 @@ class AuditLogResponse(BaseModel):
 
 # --- AI Schemas ---
 class AISearchRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=3, max_length=500)
     user_role: Optional[str] = "FACULTY"
 
 class AIRecommendationItem(BaseModel):
@@ -420,6 +443,7 @@ class AIRecommendationItem(BaseModel):
     explanation: str
     facilities_matched: List[str]
     capacity_difference: int
+    effective_capacity: Optional[int] = None
 
 class AISearchResponse(BaseModel):
     interpreted_query: Dict[str, Any]

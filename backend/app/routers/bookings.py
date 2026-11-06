@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 _booking_lock = threading.Lock()
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from backend.app.database import get_db
 from backend.app.models import Booking, Room, User, Branch
 from backend.app.schemas import (
@@ -107,18 +107,19 @@ def _available_room_alternatives(
         if not section_available or not faculty_available or not buffer_available:
             continue
 
+        capacity = room.exam_capacity if booking_in.purpose in {
+            "MINOR_EXAM", "MAJOR_EXAM", "EXAM", "PRACTICAL_EXAM"
+        } else room.capacity
         available.append({
             "room_id": room.id,
             "room_number": room.room_number,
             "building_id": room.building_id,
             "building_name": room.building.name if room.building else "Unknown building",
-            "capacity": room.exam_capacity if booking_in.purpose in {
-                "MINOR_EXAM", "MAJOR_EXAM", "EXAM", "PRACTICAL_EXAM"
-            } else room.capacity,
+            "capacity": capacity,
             "reason": "Available for the requested time and capacity.",
             "_rank": (
                 room.building_id != requested_room.building_id if requested_room else True,
-                max(0, room.capacity - booking_in.expected_students),
+                max(0, capacity - booking_in.expected_students),
                 room.room_number,
             ),
         })
@@ -152,6 +153,9 @@ def create_booking(
     current_user: User = Depends(require_role(["FACULTY", "ADMIN"]))
 ):
     with _booking_lock:
+        if booking_in.date < date.today():
+            raise HTTPException(status_code=422, detail="Bookings cannot be created for a past date.")
+
         # 0. Check Idempotency Key (Return existing booking if already processed)
         if booking_in.idempotency_key:
             existing_idemp = db.query(Booking).filter(Booking.idempotency_key == booking_in.idempotency_key).first()
@@ -164,7 +168,14 @@ def create_booking(
             raise HTTPException(status_code=400, detail=val_err)
 
         faculty_id_to_check = booking_in.faculty_id
-        if not faculty_id_to_check and current_user.faculty_profile:
+        if current_user.role == "FACULTY":
+            faculty_profile = current_user.faculty_profile
+            if not faculty_profile:
+                raise HTTPException(status_code=403, detail="A faculty profile is required to create bookings.")
+            if booking_in.faculty_id not in (None, faculty_profile.id):
+                raise HTTPException(status_code=403, detail="Faculty can only create bookings for themselves.")
+            faculty_id_to_check = faculty_profile.id
+        elif not faculty_id_to_check and current_user.faculty_profile:
             faculty_id_to_check = current_user.faculty_profile.id
 
         # 2. Check Room conflicts using ConflictEngine (half-open interval [start, end) + closures + exam spacing)
@@ -311,7 +322,8 @@ def create_booking(
             notification_type="BOOKING_CONFIRMED",
             branch_id=new_booking.branch_id,
             year=new_booking.academic_year,
-            section=new_booking.section
+            section=new_booking.section,
+            batch_id=new_booking.batch_id,
         )
 
     return format_booking(new_booking)
@@ -335,8 +347,8 @@ def get_bookings(
         joinedload(Booking.user),
     )
 
-    # Faculty viewing only their own bookings or if flag set
-    if current_user.role == "FACULTY" and my_bookings_only:
+    # Faculty can only view bookings they created; administrators retain campus-wide access.
+    if current_user.role == "FACULTY":
         query = query.filter(Booking.user_id == current_user.id)
     elif current_user.role == "STUDENT":
         # Students only see confirmed/completed bookings for their own cohort.
@@ -347,7 +359,8 @@ def get_bookings(
             Booking.status.in_(["CONFIRMED", "COMPLETED"]),
             Booking.branch_id == student.branch_id,
             Booking.academic_year == student.year,
-            Booking.section == student.section,
+            or_(Booking.section == student.section, Booking.section == "ALL"),
+            or_(Booking.batch_id.is_(None), Booking.batch_id == student.batch_id),
         )
 
     if status_filter:
@@ -450,6 +463,8 @@ def create_split_booking(
             raise HTTPException(status_code=400, detail="Missing required fields for split booking.")
 
         b_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        if b_date < date.today():
+            raise HTTPException(status_code=422, detail="Split bookings cannot be created for a past date.")
         s_time = datetime.strptime(start_str, "%H:%M").time()
         e_time = datetime.strptime(end_str, "%H:%M").time()
 
@@ -542,6 +557,19 @@ def get_booking(booking_id: int, db: Session = Depends(get_db), current_user: Us
     b = db.query(Booking).filter(Booking.id == booking_id).first()
     if not b:
         raise HTTPException(status_code=404, detail="Booking not found")
+    if current_user.role == "STUDENT":
+        student = current_user.student_profile
+        if (
+            not student
+            or b.status not in {"CONFIRMED", "COMPLETED"}
+            or b.branch_id != student.branch_id
+            or b.academic_year != student.year
+            or b.section not in {student.section, "ALL"}
+            or (b.batch_id is not None and b.batch_id != student.batch_id)
+        ):
+            raise HTTPException(status_code=404, detail="Booking not found")
+    elif current_user.role == "FACULTY" and b.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Booking not found")
     return format_booking(b)
 
 @router.patch("/{booking_id}/cancel", response_model=BookingResponse)
@@ -610,7 +638,8 @@ def cancel_booking(
             notification_type="BOOKING_CANCELLED",
             branch_id=b.branch_id,
             year=b.academic_year,
-            section=b.section
+            section=b.section,
+            batch_id=b.batch_id,
         )
 
     return format_booking(b)
@@ -626,6 +655,9 @@ def update_booking_status(
     b = db.query(Booking).filter(Booking.id == booking_id).first()
     if not b:
         raise HTTPException(status_code=404, detail="Booking not found")
+
+    if status_in.status not in {"CONFIRMED", "REJECTED", "PENDING_APPROVAL"}:
+        raise HTTPException(status_code=422, detail="Unsupported booking status.")
 
     old_status = b.status
     b.status = status_in.status

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Announcement } from '../../types';
+import { Announcement, Branch } from '../../types';
 import { api } from '../../services/api';
 import { 
   Megaphone, Plus, History, Calendar, Clock, MapPin, 
@@ -8,6 +8,7 @@ import {
 
 export const AnnouncementsPage: React.FC = () => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [viewingVersions, setViewingVersions] = useState<Announcement | null>(null);
@@ -19,12 +20,18 @@ export const AnnouncementsPage: React.FC = () => {
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+  const [targetBranchId, setTargetBranchId] = useState('');
+  const [targetYear, setTargetYear] = useState('');
+  const [targetSection, setTargetSection] = useState('');
 
   // Editing state
   const [editingAnn, setEditingAnn] = useState<Announcement | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [changeSummary, setChangeSummary] = useState('');
+  const [editTargetBranchId, setEditTargetBranchId] = useState('');
+  const [editTargetYear, setEditTargetYear] = useState('');
+  const [editTargetSection, setEditTargetSection] = useState('');
 
   const loadAnnouncements = async () => {
     setLoading(true);
@@ -40,6 +47,7 @@ export const AnnouncementsPage: React.FC = () => {
 
   useEffect(() => {
     loadAnnouncements();
+    api.getBranches().then(setBranches).catch((err) => console.error('Failed to load branches', err));
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -52,11 +60,17 @@ export const AnnouncementsPage: React.FC = () => {
         date: date || undefined,
         start_time: startTime || undefined,
         end_time: endTime || undefined,
+        target_branch_id: targetBranchId ? Number(targetBranchId) : null,
+        target_year: targetYear ? Number(targetYear) : null,
+        target_section: targetSection || null,
         status: 'PUBLISHED',
       });
       setIsCreateOpen(false);
       setTitle('');
       setDescription('');
+      setTargetBranchId('');
+      setTargetYear('');
+      setTargetSection('');
       loadAnnouncements();
     } catch (err: any) {
       alert(err.message || 'Failed to publish notice');
@@ -70,6 +84,9 @@ export const AnnouncementsPage: React.FC = () => {
       await api.updateAnnouncement(editingAnn.id, {
         title: editTitle,
         description: editDesc,
+        target_branch_id: editTargetBranchId ? Number(editTargetBranchId) : null,
+        target_year: editTargetYear ? Number(editTargetYear) : null,
+        target_section: editTargetSection || null,
         change_summary: changeSummary || 'Notice revised',
       });
       setEditingAnn(null);
@@ -167,6 +184,9 @@ export const AnnouncementsPage: React.FC = () => {
                       setEditingAnn(a);
                       setEditTitle(a.title);
                       setEditDesc(a.description);
+                      setEditTargetBranchId(a.target_branch_id ? String(a.target_branch_id) : '');
+                      setEditTargetYear(a.target_year ? String(a.target_year) : '');
+                      setEditTargetSection(a.target_section || '');
                       setChangeSummary('');
                     }}
                     className="p-2 rounded-xl text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 text-xs font-semibold flex items-center gap-1"
@@ -280,6 +300,23 @@ export const AnnouncementsPage: React.FC = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-3 gap-2">
+                <select value={targetBranchId} onChange={(e) => setTargetBranchId(e.target.value)} className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-slate-50">
+                  <option value="">All branches</option>
+                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.code}</option>)}
+                </select>
+                <select value={targetYear} onChange={(e) => setTargetYear(e.target.value)} className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-slate-50">
+                  <option value="">All years</option>
+                  {[1, 2, 3, 4].map((year) => <option key={year} value={year}>Year {year}</option>)}
+                </select>
+                <select value={targetSection} onChange={(e) => setTargetSection(e.target.value)} className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-slate-50">
+                  <option value="">All sections</option>
+                  <option value="A">Section A</option>
+                  <option value="B">Section B</option>
+                  <option value="ALL">Combined sections</option>
+                </select>
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-3">
                 <button
                   type="button"
@@ -351,6 +388,23 @@ export const AnnouncementsPage: React.FC = () => {
                   placeholder="e.g. Venue upgraded from IET17 to Deeksha Bhawan LH01 for extra capacity"
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800"
                 />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <select value={editTargetBranchId} onChange={(e) => setEditTargetBranchId(e.target.value)} className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-slate-50">
+                  <option value="">All branches</option>
+                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.code}</option>)}
+                </select>
+                <select value={editTargetYear} onChange={(e) => setEditTargetYear(e.target.value)} className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-slate-50">
+                  <option value="">All years</option>
+                  {[1, 2, 3, 4].map((year) => <option key={year} value={year}>Year {year}</option>)}
+                </select>
+                <select value={editTargetSection} onChange={(e) => setEditTargetSection(e.target.value)} className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-slate-50">
+                  <option value="">All sections</option>
+                  <option value="A">Section A</option>
+                  <option value="B">Section B</option>
+                  <option value="ALL">Combined sections</option>
+                </select>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3">

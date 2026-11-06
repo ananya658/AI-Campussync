@@ -5,7 +5,7 @@ from backend.app.config import settings
 from backend.app.database import engine, Base
 from backend.app.seed import seed_database
 from backend.app.routers import (
-    auth, buildings, rooms, bookings, schedules, announcements, reports, ai, audit, analytics, notifications, reconciliation
+    auth, buildings, branches, rooms, bookings, schedules, announcements, reports, ai, audit, analytics, notifications, reconciliation
 )
 
 # Initialize database schema
@@ -59,6 +59,7 @@ def health_check():
 # Include all API Routers under /api
 app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(buildings.router, prefix=settings.API_V1_STR)
+app.include_router(branches.router, prefix=settings.API_V1_STR)
 app.include_router(rooms.router, prefix=settings.API_V1_STR)
 app.include_router(bookings.router, prefix=settings.API_V1_STR)
 app.include_router(schedules.router, prefix=settings.API_V1_STR)
@@ -68,6 +69,7 @@ app.include_router(ai.router, prefix=settings.API_V1_STR)
 app.include_router(audit.router, prefix=settings.API_V1_STR)
 app.include_router(analytics.router, prefix=settings.API_V1_STR)
 app.include_router(notifications.router, prefix=settings.API_V1_STR)
+app.include_router(notifications.websocket_router)
 app.include_router(reconciliation.router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":

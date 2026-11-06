@@ -26,21 +26,44 @@ export const NotificationCenter: React.FC = () => {
 
     // WebSocket connection for live notifications
     let ws: WebSocket | null = null;
+    let pollingTimer: number | null = null;
+    let keepaliveTimer: number | null = null;
+    const startPolling = () => {
+      if (pollingTimer === null) {
+        pollingTimer = window.setInterval(fetchNotifs, 15000);
+      }
+    };
+    const token = localStorage.getItem('campussync_token');
+    if (!token) {
+      startPolling();
+      return () => {
+        if (pollingTimer !== null) window.clearInterval(pollingTimer);
+      };
+    }
+
     try {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${protocol}//${window.location.host}/ws/notifications/${user.id}`);
+      const apiBaseUrl = new URL(import.meta.env.VITE_API_BASE_URL || '/api', window.location.origin);
+      apiBaseUrl.protocol = apiBaseUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socketUrl = new URL(`/ws/notifications/${user.id}`, apiBaseUrl);
+      socketUrl.searchParams.set('token', token);
+      ws = new WebSocket(socketUrl.toString());
 
       ws.onmessage = () => {
         fetchNotifs();
       };
+      ws.onclose = startPolling;
+      ws.onerror = startPolling;
+      keepaliveTimer = window.setInterval(() => {
+        if (ws?.readyState === WebSocket.OPEN) ws.send('ping');
+      }, 30000);
     } catch {
-      // Periodic fallback
-      const timer = setInterval(fetchNotifs, 15000);
-      return () => clearInterval(timer);
+      startPolling();
     }
 
     return () => {
       if (ws) ws.close();
+      if (pollingTimer !== null) window.clearInterval(pollingTimer);
+      if (keepaliveTimer !== null) window.clearInterval(keepaliveTimer);
     };
   }, [user]);
 

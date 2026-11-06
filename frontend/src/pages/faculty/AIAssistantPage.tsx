@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AISearchResponse, Room } from '../../types';
+import { AISearchResponse, BookingPrefill, Room } from '../../types';
 import { api } from '../../services/api';
 import { 
   Sparkles, Send, CheckCircle2, Clock, MapPin, 
@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 interface AIAssistantPageProps {
-  onBookRoom: (room: Room) => void;
+  onBookRoom: (room: Room, booking?: BookingPrefill) => void;
 }
 
 export const AIAssistantPage: React.FC<AIAssistantPageProps> = ({ onBookRoom }) => {
@@ -21,6 +21,35 @@ export const AIAssistantPage: React.FC<AIAssistantPageProps> = ({ onBookRoom }) 
     'Find a seminar hall for 150 students with projector and audio system',
     'Find a lecture hall in Deeksha Bhawan for 80 students tomorrow at 10 AM',
   ];
+
+  const bookingFromInterpretation = (): BookingPrefill | undefined => {
+    if (!result) return undefined;
+    const interpreted = result.interpreted_query;
+    return {
+      date: interpreted.date,
+      start_time: interpreted.start_time,
+      end_time: interpreted.end_time,
+      expected_students: interpreted.required_capacity,
+      purpose: interpreted.purpose as BookingPrefill['purpose'],
+    };
+  };
+
+  const bookAlternativeTime = async (slot: AISearchResponse['alternative_time_slots'][number]) => {
+    try {
+      const rooms = await api.getRooms({ building_id: slot.building_id });
+      const room = rooms.find((candidate) => candidate.id === slot.room_id);
+      if (!room) throw new Error('That room is no longer available in the room list. Search again.');
+      onBookRoom(room, {
+        date: slot.date,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        expected_students: result?.interpreted_query.required_capacity || slot.capacity,
+        purpose: result?.interpreted_query.purpose as BookingPrefill['purpose'],
+      });
+    } catch (err: any) {
+      alert(err.message || 'Could not open this alternative booking');
+    }
+  };
 
   const handleSearch = async (textToSearch?: string) => {
     const q = textToSearch || query;
@@ -132,6 +161,9 @@ export const AIAssistantPage: React.FC<AIAssistantPageProps> = ({ onBookRoom }) 
               <span className="bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
                 Building: <strong>{result.interpreted_query.building}</strong>
               </span>
+              <span className="bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                Duration: <strong>{result.interpreted_query.duration_minutes} min</strong>
+              </span>
             </div>
           </div>
 
@@ -182,14 +214,14 @@ export const AIAssistantPage: React.FC<AIAssistantPageProps> = ({ onBookRoom }) 
                 <div className="flex items-center gap-4 text-xs text-slate-600">
                   <span className="flex items-center gap-1 font-bold text-slate-900">
                     <Users className="w-4 h-4 text-blue-600" />
-                    Capacity: {result.primary_recommendation.room.capacity} students
+                    Capacity: {result.primary_recommendation.effective_capacity || result.primary_recommendation.room.capacity} students
                   </span>
                   <span>•</span>
                   <span>Buffer: +{result.primary_recommendation.capacity_difference} seats</span>
                 </div>
 
                 <button
-                  onClick={() => onBookRoom(result.primary_recommendation!.room)}
+                  onClick={() => onBookRoom(result.primary_recommendation!.room, bookingFromInterpretation())}
                   className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/25 flex items-center justify-center gap-2 transition-all hover:scale-[1.02]"
                 >
                   Book {result.primary_recommendation.room.room_number} Now <ArrowRight className="w-4 h-4" />
@@ -212,7 +244,14 @@ export const AIAssistantPage: React.FC<AIAssistantPageProps> = ({ onBookRoom }) 
                     <div key={idx} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
                       <div className="font-bold text-slate-900">{alt.room_number}</div>
                       <div className="text-[11px] text-slate-500">{alt.building_name}</div>
-                      <div className="font-semibold text-blue-700 mt-2">{alt.label}</div>
+                      <div className="font-semibold text-blue-700 mt-2">{alt.date} · {alt.label}</div>
+                      <button
+                        type="button"
+                        onClick={() => bookAlternativeTime(alt)}
+                        className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-blue-700"
+                      >
+                        Use this room and time
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -240,12 +279,12 @@ export const AIAssistantPage: React.FC<AIAssistantPageProps> = ({ onBookRoom }) 
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 mt-0.5">
-                        {alt.room.building_name} • {alt.room.capacity} seats
+                        {alt.room.building_name} • {alt.effective_capacity || alt.room.capacity} seats
                       </div>
                     </div>
 
                     <button
-                      onClick={() => onBookRoom(alt.room)}
+                      onClick={() => onBookRoom(alt.room, bookingFromInterpretation())}
                       className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 font-semibold text-xs transition-all"
                     >
                       Book →

@@ -3,7 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { FloorMapContainer } from './components/FloorMap/FloorMapContainer';
-import { Room } from './types';
+import { BookingPrefill, Room } from './types';
 
 // Public Pages
 import { LandingPage } from './pages/LandingPage';
@@ -38,6 +38,7 @@ export const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<string>('landing');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [prefilledBookingRoom, setPrefilledBookingRoom] = useState<Room | null>(null);
+  const [prefilledBooking, setPrefilledBooking] = useState<BookingPrefill | null>(null);
 
   // Auto-redirect to dashboard when logged in and currently on public landing/login
   React.useEffect(() => {
@@ -66,8 +67,9 @@ export const AppContent: React.FC = () => {
   }
 
   // Handle booking quick action from map or search
-  const handleInitiateBooking = (room: Room) => {
+  const handleInitiateBooking = (room: Room, booking?: BookingPrefill) => {
     setPrefilledBookingRoom(room);
+    setPrefilledBooking(booking || null);
     setCurrentView('create-booking');
   };
 
@@ -131,6 +133,7 @@ export const AppContent: React.FC = () => {
         return (
           <CreateBookingPage
             initialRoom={prefilledBookingRoom}
+            initialBooking={prefilledBooking}
             onBookingSuccess={() => setCurrentView('my-bookings')}
           />
         );
@@ -139,6 +142,7 @@ export const AppContent: React.FC = () => {
           <MyBookingsPage
             onNewBookingClick={() => {
               setPrefilledBookingRoom(null);
+              setPrefilledBooking(null);
               setCurrentView('create-booking');
             }}
           />

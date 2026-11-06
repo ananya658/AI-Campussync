@@ -8,7 +8,7 @@ from backend.app.database import get_db
 from backend.app.models import User, Student, Faculty, Branch, Batch
 from backend.app.schemas import UserLogin, UserCreate, UserResponse, Token
 from backend.app.auth import hash_password, verify_password, create_access_token
-from backend.app.dependencies import get_current_user
+from backend.app.dependencies import get_current_user, require_role
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -109,7 +109,15 @@ def login(login_data: UserLogin, request: Request, db: Session = Depends(get_db)
     }
 
 @router.post("/register", response_model=UserResponse)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
+def register(
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(["ADMIN"])),
+):
+    role = user_data.role.strip().upper()
+    if role not in {"ADMIN", "FACULTY", "STUDENT"}:
+        raise HTTPException(status_code=422, detail="Role must be ADMIN, FACULTY, or STUDENT.")
+
     existing = db.query(User).filter(User.email == user_data.email).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is already registered")
@@ -118,7 +126,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         email=user_data.email,
         hashed_password=hash_password(user_data.password),
         full_name=user_data.full_name,
-        role=user_data.role.upper(),
+        role=role,
         department=user_data.department,
         phone=user_data.phone,
         is_active=True

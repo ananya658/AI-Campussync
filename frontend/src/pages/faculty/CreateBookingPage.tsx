@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Room, Building } from '../../types';
+import { BookingPrefill, Room, Building, Branch, AcademicSection } from '../../types';
 import { api, type BookingAlternative } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -10,29 +10,33 @@ import {
 
 interface CreateBookingPageProps {
   initialRoom?: Room | null;
+  initialBooking?: BookingPrefill | null;
   onBookingSuccess: () => void;
 }
 
 export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
   initialRoom,
+  initialBooking,
   onBookingSuccess,
 }) => {
   const { user } = useAuth();
   const [buildings, setBuildings] = useState<Building[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [academicSections, setAcademicSections] = useState<AcademicSection[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [selectedBuildingId, setSelectedBuildingId] = useState<number>(initialRoom?.building_id || 1);
+  const [selectedBuildingId, setSelectedBuildingId] = useState<number>(initialRoom?.building_id || 0);
   const [selectedRoomId, setSelectedRoomId] = useState<number>(initialRoom?.id || 0);
 
   // Form fields
   const [title, setTitle] = useState('');
-  const [purpose, setPurpose] = useState('EXTRA_LECTURE');
-  const [bookingDate, setBookingDate] = useState(new Date().toISOString().split('T')[0]);
-  const [startTime, setStartTime] = useState('14:00');
-  const [endTime, setEndTime] = useState('15:00');
-  const [expectedStudents, setExpectedStudents] = useState<number>(60);
-  const [branchId, setBranchId] = useState<string>('1'); // CSE
-  const [academicYear, setAcademicYear] = useState<string>('3'); // 3rd Year
-  const [section, setSection] = useState<string>('A');
+  const [purpose, setPurpose] = useState<BookingPrefill['purpose']>(initialBooking?.purpose || 'EXTRA_LECTURE');
+  const [bookingDate, setBookingDate] = useState(initialBooking?.date || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10));
+  const [startTime, setStartTime] = useState(initialBooking?.start_time || '14:00');
+  const [endTime, setEndTime] = useState(initialBooking?.end_time || '15:00');
+  const [expectedStudents, setExpectedStudents] = useState<number>(initialBooking?.expected_students || 60);
+  const [branchId, setBranchId] = useState<string>('');
+  const [academicYear, setAcademicYear] = useState<string>('');
+  const [section, setSection] = useState<string>('');
   const [requirements, setRequirements] = useState('');
   const [isTestData, setIsTestData] = useState(false);
 
@@ -59,10 +63,20 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
       try {
         const bList = await api.getBuildings();
         setBuildings(bList);
+        if (!selectedBuildingId) {
+          if (bList.length > 0) setSelectedBuildingId(bList[0].id);
+          return;
+        }
         const rList = await api.getRooms({ building_id: selectedBuildingId });
-        setRooms(rList);
-        if (!selectedRoomId && rList.length > 0) {
-          setSelectedRoomId(rList[0].id);
+        const bookableRooms = rList.filter((room) =>
+          room.is_active
+          && room.is_bookable
+          && !room.is_maintenance
+          && room.verification_status === 'OFFICIAL_VERIFIED'
+        );
+        setRooms(bookableRooms);
+        if (!selectedRoomId && bookableRooms.length > 0) {
+          setSelectedRoomId(bookableRooms[0].id);
         }
       } catch (err) {
         console.error(err);
@@ -70,6 +84,34 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
     };
     load();
   }, [selectedBuildingId]);
+
+  useEffect(() => {
+    api.getBranches().then((items) => {
+      setBranches(items);
+      if (!branchId && items.length > 0) {
+        const preferred = items.find((branch) => branch.code.toUpperCase() === user?.department?.toUpperCase()) || items[0];
+        setBranchId(String(preferred.id));
+      }
+    }).catch((err) => console.error('Failed to load academic branches', err));
+  }, []);
+
+  useEffect(() => {
+    if (!branchId || !academicYear) {
+      setAcademicSections([]);
+      setSection('');
+      return;
+    }
+    api.getSections(Number(branchId), Number(academicYear)).then((items) => {
+      setAcademicSections(items);
+      setSection((current) => items.some((item) => item.section_name === current)
+        ? current
+        : (items[0]?.section_name || ''));
+    }).catch((err) => {
+      setAcademicSections([]);
+      setSection('');
+      console.error('Failed to load academic sections', err);
+    });
+  }, [branchId, academicYear]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -154,7 +196,7 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
   };
 
   const selectedRoomObj = rooms.find((r) => r.id === selectedRoomId);
-  const isExam = purpose === 'MINOR_EXAM' || purpose === 'MAJOR_EXAM' || purpose === 'EXAMINATION';
+  const isExam = ['MINOR_EXAM', 'MAJOR_EXAM', 'PRACTICAL_EXAM', 'EXAM', 'EXAMINATION'].includes(purpose);
   const roomExamCapacity = selectedRoomObj?.exam_capacity || Math.floor((selectedRoomObj?.capacity || 75) * 0.5);
   const examExceeded = isExam && selectedRoomObj && (expectedStudents > roomExamCapacity);
 
@@ -305,11 +347,12 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
                 </label>
                 <select
                   value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
+                  onChange={(e) => setPurpose(e.target.value as BookingPrefill['purpose'])}
                   className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
                   <option value="EXTRA_LECTURE">Extra Lecture</option>
                   <option value="MINOR_EXAM">Minor Examination</option>
+                  <option value="PRACTICAL_EXAM">Practical Examination</option>
                   <option value="PRACTICAL_SESSION">Practical Session / Lab</option>
                   <option value="SEMINAR">Seminar / Guest Lecture</option>
                   <option value="ACADEMIC_EVENT">Academic Event</option>
@@ -334,7 +377,10 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
                 </label>
                 <select
                   value={selectedBuildingId}
-                  onChange={(e) => setSelectedBuildingId(parseInt(e.target.value))}
+                  onChange={(e) => {
+                    setSelectedBuildingId(parseInt(e.target.value));
+                    setSelectedRoomId(0);
+                  }}
                   className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900"
                 >
                   {buildings.map((b) => (
@@ -532,26 +578,27 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Branch</label>
                 <select
+                  required
                   value={branchId}
                   onChange={(e) => setBranchId(e.target.value)}
                   className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900"
                 >
-                  <option value="1">CSE (Computer Science)</option>
-                  <option value="2">AIML (AI & Machine Learning)</option>
-                  <option value="3">AIDS (AI & Data Science)</option>
-                  <option value="4">ECE (Electronics)</option>
-                  <option value="5">ME (Mechanical)</option>
-                  <option value="6">IT (Information Tech)</option>
+                  <option value="">Select branch</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>{branch.code} ({branch.name})</option>
+                  ))}
                 </select>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Year</label>
                 <select
+                  required
                   value={academicYear}
                   onChange={(e) => setAcademicYear(e.target.value)}
                   className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900"
                 >
+                  <option value="">Select year</option>
                   <option value="1">1st Year</option>
                   <option value="2">2nd Year</option>
                   <option value="3">3rd Year</option>
@@ -562,13 +609,16 @@ export const CreateBookingPage: React.FC<CreateBookingPageProps> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Section</label>
                 <select
+                  required
                   value={section}
                   onChange={(e) => setSection(e.target.value)}
                   className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900"
                 >
-                  <option value="A">Section A</option>
-                  <option value="B">Section B</option>
-                  <option value="ALL">Combined (A + B)</option>
+                  <option value="">Select section</option>
+                  {academicSections.map((item) => (
+                    <option key={item.id} value={item.section_name}>Section {item.section_name} ({item.student_count} students)</option>
+                  ))}
+                  {academicSections.length > 1 && <option value="ALL">Combined (all sections)</option>}
                 </select>
               </div>
             </div>

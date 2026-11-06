@@ -323,7 +323,7 @@ class Notification(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
-    notification_type = Column(String(50), nullable=False)  # BOOKING_CONFIRMED, BOOKING_CANCELLED, ROOM_CHANGED, EXAM_SCHEDULE_CHANGED, ANNOUNCEMENT, REPORT_RESOLVED
+    notification_type = Column(String(50), nullable=False)  # BOOKING_CONFIRMED, BOOKING_CANCELLED, ROOM_CHANGED, EXAM_SCHEDULE_CHANGED, ANNOUNCEMENT, REPORT_SUBMITTED, REPORT_RESOLVED
     link_url = Column(String(255), nullable=True)
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=utcnow)

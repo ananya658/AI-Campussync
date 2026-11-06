@@ -1,7 +1,7 @@
 from datetime import date, time, datetime, timedelta
 from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, true
 from backend.app.models import (
     Room, Booking, Schedule, RoomClosure, TimetableSlot, Branch, Faculty, User, Section
 )
@@ -282,10 +282,15 @@ class ConflictEngine:
         active_statuses = ["CONFIRMED", "PENDING_APPROVAL", "APPROVED"]
         
         # Check existing section bookings
+        section_booking_filter = (
+            true()
+            if section_name.upper() == "ALL"
+            else or_(Booking.section == section_name, Booking.section == "ALL")
+        )
         query = db.query(Booking).filter(
             Booking.branch_id == branch_id,
             Booking.academic_year == academic_year,
-            Booking.section == section_name,
+            section_booking_filter,
             Booking.date == booking_date,
             Booking.status.in_(active_statuses),
             Booking.start_time < end_time,
@@ -315,10 +320,15 @@ class ConflictEngine:
 
         # Check regular academic timetable schedule
         day_of_week = booking_date.weekday()
+        section_schedule_filter = (
+            True
+            if section_name.upper() == "ALL"
+            else or_(Schedule.section == section_name, Schedule.section == "ALL")
+        )
         sched = db.query(Schedule).filter(
             Schedule.branch_id == branch_id,
             Schedule.academic_year == academic_year,
-            Schedule.section == section_name,
+            section_schedule_filter,
             Schedule.day_of_week == day_of_week,
             Schedule.is_active == True,
             Schedule.start_time < end_time,
@@ -456,10 +466,15 @@ class ConflictEngine:
 
         # Check section's adjacent bookings on same date
         if branch_id and academic_year and section_name:
+            section_booking_filter = (
+                true()
+                if section_name.upper() == "ALL"
+                else or_(Booking.section == section_name, Booking.section == "ALL")
+            )
             adjacent_bookings = db.query(Booking).filter(
                 Booking.branch_id == branch_id,
                 Booking.academic_year == academic_year,
-                Booking.section == section_name,
+                section_booking_filter,
                 Booking.date == booking_date,
                 Booking.status.in_(["CONFIRMED", "APPROVED"])
             ).all()

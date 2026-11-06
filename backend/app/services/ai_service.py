@@ -20,104 +20,166 @@ class AIService:
         - facility_needed (PROJECTOR, AC, LAB_COMPUTERS, etc.)
         - purpose (EXTRA_LECTURE, PRACTICAL_SESSION, SEMINAR, MINOR_EXAM)
         """
-        q = query.lower()
-        now = datetime.now()
-        target_date = date.today()
+        q = query.lower().strip()
+        today = date.today()
+        target_date = today
+        date_error = None
         
         # 1. Date extraction
-        if "tomorrow" in q:
-            target_date = date.today() + timedelta(days=1)
-        elif "day after tomorrow" in q:
-            target_date = date.today() + timedelta(days=2)
+        if "day after tomorrow" in q:
+            target_date = today + timedelta(days=2)
+        elif "tomorrow" in q:
+            target_date = today + timedelta(days=1)
         elif "today" in q:
-            target_date = date.today()
+            target_date = today
         else:
+            explicit_date = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", q)
+            if explicit_date:
+                try:
+                    target_date = date.fromisoformat(explicit_date.group(1))
+                except ValueError:
+                    date_error = "Enter a valid date in YYYY-MM-DD format."
             # Check for weekday names
             days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
             for i, d in enumerate(days):
-                if d in q:
-                    today_idx = date.today().weekday()
-                    diff = (i - today_idx) % 7
-                    if diff == 0:
-                        diff = 7  # Next week's day
-                    target_date = date.today() + timedelta(days=diff)
+                if d in q and not explicit_date:
+                    diff = (i - today.weekday()) % 7
+                    if diff == 0 or re.search(rf"\bnext\s+{d}\b", q):
+                        diff += 7
+                    target_date = today + timedelta(days=diff)
                     break
 
         # 2. Time extraction
         # e.g., "between 11 AM and 12 PM", "11:00 to 12:00", "2 pm to 4 pm", "at 10 am"
-        start_t = time(10, 0)
-        end_t = time(11, 0)
-        
-        # Match "between X AM and Y PM" or "from X to Y"
+        duration_match = re.search(
+            r"\b(?:for|lasting)\s+(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?)\b",
+            q,
+        )
+        duration_minutes = 60
+        if duration_match:
+            amount = float(duration_match.group(1))
+            unit = duration_match.group(2)
+            duration_minutes = round(amount * (60 if unit.startswith(("h", "hr")) else 1))
+
+        time_error = None
+        start_minutes = 10 * 60
+        end_minutes = start_minutes + duration_minutes
+
+        def to_minutes(hour_text: str, minute_text: Optional[str], meridiem: Optional[str]) -> Optional[int]:
+            hour = int(hour_text)
+            minute = int(minute_text or 0)
+            if minute > 59:
+                return None
+            if meridiem:
+                if not 1 <= hour <= 12:
+                    return None
+                hour = hour % 12 + (12 if meridiem == "pm" else 0)
+            elif hour > 23:
+                return None
+            return hour * 60 + minute
+
         time_range_match = re.search(
-            r'(?:between|from)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|and|-)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)',
-            q
+            r"\b(?:between|from)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|until|and|-)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+            q,
         )
         if time_range_match:
-            shour = int(time_range_match.group(1))
-            smin = int(time_range_match.group(2) or 0)
-            s_meridiem = time_range_match.group(3)
-            ehour = int(time_range_match.group(4))
-            emin = int(time_range_match.group(5) or 0)
-            e_meridiem = time_range_match.group(6)
-            
-            # If start meridiem is missing, infer from end
-            if not s_meridiem:
+            shour, smin, s_meridiem, ehour, emin, e_meridiem = time_range_match.groups()
+            if s_meridiem is None:
                 s_meridiem = e_meridiem
-                
-            if s_meridiem == "pm" and shour < 12:
-                shour += 12
-            elif s_meridiem == "am" and shour == 12:
-                shour = 0
-                
-            if e_meridiem == "pm" and ehour < 12:
-                ehour += 12
-            elif e_meridiem == "am" and ehour == 12:
-                ehour = 0
+            if e_meridiem is None:
+                e_meridiem = s_meridiem
+            start_minutes = to_minutes(shour, smin, s_meridiem)
+            end_minutes = to_minutes(ehour, emin, e_meridiem)
 
-            start_t = time(shour, smin)
-            end_t = time(ehour, emin)
+            # Resolve common omitted-meridiem phrases such as "11 AM to 1" and "9 to 5 PM".
+            if (
+                start_minutes is not None
+                and end_minutes is not None
+                and end_minutes <= start_minutes
+            ):
+                if time_range_match.group(6) is None and time_range_match.group(3) is not None:
+                    end_meridiem = "pm" if time_range_match.group(3) == "am" else "am"
+                    end_minutes = to_minutes(ehour, emin, end_meridiem)
+                elif time_range_match.group(3) is None and time_range_match.group(6) is not None:
+                    start_meridiem = "am" if time_range_match.group(6) == "pm" else "pm"
+                    start_minutes = to_minutes(shour, smin, start_meridiem)
+            if (
+                start_minutes is None
+                or end_minutes is None
+                or end_minutes <= start_minutes
+                or end_minutes - start_minutes > 8 * 60
+                or end_minutes - start_minutes < 15
+            ):
+                time_error = "Enter a valid time range between 15 minutes and 8 hours."
         else:
-            # Look for single hour e.g. "at 11 am", "for 2 pm"
-            single_time = re.search(r'(?:at|from|around)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)', q)
+            single_time = re.search(
+                r"\b(?:at|around|from)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+                q,
+            )
             if single_time:
-                shour = int(single_time.group(1))
-                smin = int(single_time.group(2) or 0)
-                s_mer = single_time.group(3)
-                if s_mer == "pm" and shour < 12:
-                    shour += 12
-                start_t = time(shour, smin)
-                end_t = time(min(shour + 1, 23), smin)
+                start_minutes = to_minutes(*single_time.groups())
+                if start_minutes is None:
+                    time_error = "Enter a valid start time."
+                else:
+                    end_minutes = start_minutes + duration_minutes
+
+        if start_minutes is None or end_minutes is None:
+            time_error = "Enter a valid start and end time."
+        if duration_minutes < 15 or duration_minutes > 8 * 60:
+            time_error = "Requested duration must be between 15 minutes and 8 hours."
+        if end_minutes is not None and end_minutes > 23 * 60 + 59:
+            time_error = "The requested time slot must end before midnight."
+
+        if time_error:
+            start_minutes = 10 * 60
+            end_minutes = start_minutes + 60
+
+        start_t = time(start_minutes // 60, start_minutes % 60)
+        end_t = time(end_minutes // 60, end_minutes % 60)
+        duration_minutes = end_minutes - start_minutes
 
         # 3. Capacity extraction
         # e.g., "for 70 students", "capacity of 150", "75 seats", "100 people"
+        capacity_text = re.sub(
+            r"\b(?:for|lasting)\s+\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\b",
+            " ",
+            q,
+        )
+        capacity_text = re.sub(
+            r"\b(?:between|from)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:to|until|and|-)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b",
+            " ",
+            capacity_text,
+        )
+        capacity_text = re.sub(r"\b20\d{2}-\d{2}-\d{2}\b", " ", capacity_text)
         capacity = None
-        cap_match = re.search(r'(?:for\s*)?(\d{2,3})\s*(?:students|people|seats|capacity)', q)
+        cap_match = re.search(
+            r"\b(?:for\s+|capacity\s+(?:of\s+)?)?(\d{1,4})\s*(?:students?|people|seats|candidates?)\b|\b(?:for|capacity\s+(?:of)?)\s+(\d{1,4})\b",
+            capacity_text,
+        )
         if cap_match:
-            capacity = int(cap_match.group(1))
-        else:
-            # Fallback search for bare 2-3 digit number (not part of time)
-            nums = re.findall(r'\b(?!1[0-2]\b)(\d{2,3})\b', q)
-            if nums:
-                capacity = int(nums[0])
+            capacity = int(cap_match.group(1) or cap_match.group(2))
+            if capacity < 1:
+                raise ValueError("Requested capacity must be at least one person.")
 
         # 4. Building preference
         building_code = None
-        if "iet" in q or "engineering" in q:
+        if re.search(r"\biet(?:\s*\d+)?\b|\bengineering\b", q):
             building_code = "IET"
-        elif "deeksha" in q or "bhawan" in q or "lh" in q:
+        elif re.search(r"\bdeeksha\b|\bbhawan\b|\blh\d+\b", q):
             building_code = "DB"
 
         # 5. Room Type
         room_type = None
-        if "lab" in q or "laboratory" in q or "practical" in q:
+        if re.search(r"\blabs?\b|\blaborator(?:y|ies)\b|\bpracticals?\b", q):
             room_type = "LAB"
-        elif "seminar" in q or "auditorium" in q or "hall" in q:
+        elif re.search(r"\bseminars?\b|\bauditoriums?\b", q):
             room_type = "SEMINAR_HALL"
-        elif "library" in q:
+        elif re.search(r"\blibrary\b|\blibraries\b", q):
             room_type = "LIBRARY"
-        elif "classroom" in q or "lecture" in q or "theory" in q:
+        elif re.search(r"\bclassrooms?\b|\blectures?\b|\btheory\b", q):
             room_type = "LECTURE_HALL"
+        elif re.search(r"\bhalls?\b", q):
+            room_type = "SEMINAR_HALL"
 
         # 6. Facilities
         facility_needed = None
@@ -125,26 +187,37 @@ class AIService:
             facility_needed = "PROJECTOR"
         elif "smart board" in q or "smartboard" in q:
             facility_needed = "SMART_BOARD"
-        elif "computer" in q or "pc" in q:
+        elif "computer" in q or re.search(r"\bpcs?\b", q):
             facility_needed = "LAB_COMPUTERS"
-        elif "ac" in q or "air conditioning" in q:
+        elif re.search(r"\bac\b|air conditioning", q):
             facility_needed = "AC"
-        elif "audio" in q or "mic" in q or "sound" in q:
+        elif re.search(r"\baudio\b|\bmics?\b|\bmicrophones?\b|\bsound\b", q):
             facility_needed = "AUDIO_SYSTEM"
 
         # 7. Purpose
         purpose = "EXTRA_LECTURE"
-        if "exam" in q or "minor" in q or "test" in q:
+        if re.search(r"\bmajor\s+(?:exam|examination|test)\b", q):
+            purpose = "MAJOR_EXAM"
+        elif re.search(r"\bpractical\s+(?:exam|examination|test)\b", q):
+            purpose = "PRACTICAL_EXAM"
+        elif re.search(r"\b(?:exam|examination|minor|test)\b", q):
             purpose = "MINOR_EXAM"
-        elif "practical" in q or "lab" in q:
+        elif re.search(r"\bpracticals?\b|\blabs?\b", q):
             purpose = "PRACTICAL_SESSION"
-        elif "seminar" in q or "workshop" in q or "event" in q:
+        elif re.search(r"\bworkshops?\b", q):
+            purpose = "WORKSHOP"
+        elif re.search(r"\bseminars?\b", q):
             purpose = "SEMINAR"
+        elif re.search(r"\bevents?\b|\bconferences?\b|\bhackathons?\b", q):
+            purpose = "ACADEMIC_EVENT"
 
         return {
             "target_date": target_date,
+            "date_error": date_error,
             "start_time": start_t,
             "end_time": end_t,
+            "duration_minutes": duration_minutes,
+            "time_error": time_error,
             "required_capacity": capacity or 60,
             "building_code": building_code,
             "room_type": room_type,
@@ -168,10 +241,18 @@ class AIService:
         - Formulates transparent explanations and alternatives
         """
         parsed = AIService.parse_natural_language_query(query)
+        if parsed["date_error"]:
+            raise ValueError(parsed["date_error"])
+        if parsed["time_error"]:
+            raise ValueError(parsed["time_error"])
+        if parsed["target_date"] < date.today():
+            raise ValueError("Choose today or a future date for a room search.")
         target_date: date = parsed["target_date"]
         start_time: time = parsed["start_time"]
         end_time: time = parsed["end_time"]
         req_capacity: int = parsed["required_capacity"]
+        purpose: str = parsed["purpose"]
+        is_exam = purpose in {"MINOR_EXAM", "MAJOR_EXAM", "PRACTICAL_EXAM"}
         building_code: Optional[str] = parsed["building_code"]
         room_type: Optional[str] = parsed["room_type"]
         facility_needed: Optional[str] = parsed["facility_needed"]
@@ -194,7 +275,8 @@ class AIService:
                 booking_date=target_date,
                 start_time=start_time,
                 end_time=end_time,
-                expected_students=req_capacity
+                expected_students=req_capacity,
+                purpose=purpose,
             )
 
             # Facility check
@@ -209,10 +291,11 @@ class AIService:
 
             # 2. Ranking Algorithm
             # Capacity fitness: Best score if room capacity is just right (avoid wasting a 200-seat hall for 25 students)
-            cap_diff = r.capacity - req_capacity  # >= 0
-            if r.capacity > 0:
+            usable_capacity = r.exam_capacity if is_exam else r.capacity
+            cap_diff = usable_capacity - req_capacity  # >= 0
+            if usable_capacity > 0:
                 # Capacity efficiency: 100% when exact match, slightly decays with excess capacity
-                cap_score = max(0.0, 100.0 - (cap_diff / r.capacity) * 40.0)
+                cap_score = max(0.0, 100.0 - (cap_diff / usable_capacity) * 40.0)
             else:
                 cap_score = 50.0
 
@@ -237,7 +320,8 @@ class AIService:
             # Explanation generation
             explanation_parts = [
                 f"Verified available on {target_date.strftime('%a, %b %d')} between {start_time.strftime('%I:%M %p')} and {end_time.strftime('%I:%M %p')}.",
-                f"Accommodates {r.capacity} students (perfect fit for your {req_capacity} expected count, with {r.capacity - req_capacity} buffer seats).",
+                f"Accommodates {usable_capacity} {('spaced exam candidates' if is_exam else 'students')} "
+                f"(your request is {req_capacity}, with {cap_diff} seats to spare).",
                 f"Located in {r.building.name} on the {r.floor.floor_name}."
             ]
             if room_facilities:
@@ -253,6 +337,7 @@ class AIService:
                 "room_name": r.room_name,
                 "room_type": r.room_type,
                 "capacity": r.capacity,
+                "exam_capacity": r.exam_capacity,
                 "is_active": r.is_active,
                 "is_maintenance": r.is_maintenance,
                 "verification_status": r.verification_status,
@@ -276,7 +361,8 @@ class AIService:
                 "is_available": True,
                 "explanation": explanation,
                 "facilities_matched": room_facilities,
-                "capacity_difference": cap_diff
+                "capacity_difference": cap_diff,
+                "effective_capacity": usable_capacity,
             })
 
         # Sort recommendations descending by score
@@ -311,16 +397,23 @@ class AIService:
                         booking_date=target_date,
                         start_time=c_start,
                         end_time=c_end,
-                        expected_students=req_capacity
+                        expected_students=req_capacity,
+                        purpose=purpose,
                     )
-                    if avail:
+                    has_facility = (
+                        not facility_needed
+                        or any(f.facility_name == facility_needed for f in r.facilities)
+                    )
+                    if avail and has_facility:
                         alt_time_slots.append({
+                            "room_id": r.id,
+                            "building_id": r.building_id,
                             "room_number": r.room_number,
                             "building_name": r.building.name,
                             "date": str(target_date),
                             "start_time": c_start.strftime("%H:%M"),
                             "end_time": c_end.strftime("%H:%M"),
-                            "capacity": r.capacity,
+                            "capacity": r.exam_capacity if is_exam else r.capacity,
                             "label": f"{c_start.strftime('%I:%M %p')} - {c_end.strftime('%I:%M %p')}"
                         })
                         if len(alt_time_slots) >= 3:
@@ -347,6 +440,7 @@ class AIService:
                 "date": str(target_date),
                 "start_time": start_time.strftime("%H:%M"),
                 "end_time": end_time.strftime("%H:%M"),
+                "duration_minutes": parsed["duration_minutes"],
                 "required_capacity": req_capacity,
                 "building": building_code or "Any Building",
                 "room_type": room_type or "Any Room Type",

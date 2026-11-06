@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Schedule } from '../../types';
+import { Room, Schedule } from '../../types';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { Clock, Calendar, MapPin, User, BookOpen, Grid, List, Printer } from 'lucide-react';
+import { Clock, Calendar, MapPin, User, BookOpen, Grid, List, Printer, Edit, X } from 'lucide-react';
+
+interface ScheduleEditDraft {
+  room_id: string;
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+  subject_code: string;
+  subject_name: string;
+}
 
 export const TimetablePage: React.FC = () => {
   const { user } = useAuth();
@@ -10,6 +19,10 @@ export const TimetablePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<number>(0); // 0=Monday
   const [viewMode, setViewMode] = useState<'day' | 'grid'>('day');
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+  const [editDraft, setEditDraft] = useState<ScheduleEditDraft | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [saving, setSaving] = useState(false);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const timeSlots = [
@@ -22,19 +35,75 @@ export const TimetablePage: React.FC = () => {
     { start: '16:00', end: '17:00', label: '4:00 - 5:00 PM' },
   ];
 
+  const loadSchedule = async () => {
+    try {
+      setSchedules(await api.getMySchedule());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await api.getMySchedule();
-        setSchedules(data);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    loadSchedule();
   }, []);
+
+  const beginEdit = async (slot: Schedule) => {
+    try {
+      setRooms(await api.getRooms());
+      setEditingSchedule(slot);
+      setEditDraft({
+        room_id: String(slot.room_id),
+        day_of_week: String(slot.day_of_week),
+        start_time: slot.start_time.slice(0, 5),
+        end_time: slot.end_time.slice(0, 5),
+        subject_code: slot.subject_code,
+        subject_name: slot.subject_name,
+      });
+    } catch (err: any) {
+      alert(err.message || 'Could not load rooms for schedule editing');
+    }
+  };
+
+  const saveSchedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingSchedule || !editDraft) return;
+    setSaving(true);
+    try {
+      await api.updateSchedule(editingSchedule.id, {
+        room_id: Number(editDraft.room_id),
+        faculty_id: editingSchedule.faculty_id,
+        branch_id: editingSchedule.branch_id,
+        academic_year: editingSchedule.academic_year,
+        section: editingSchedule.section,
+        day_of_week: Number(editDraft.day_of_week),
+        start_time: editDraft.start_time,
+        end_time: editDraft.end_time,
+        subject_code: editDraft.subject_code,
+        subject_name: editDraft.subject_name,
+        schedule_type: editingSchedule.schedule_type,
+      });
+      setEditingSchedule(null);
+      setEditDraft(null);
+      await loadSchedule();
+    } catch (err: any) {
+      alert(err.message || 'Could not update this timetable entry');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancelSchedule = async (slot: Schedule) => {
+    const reason = window.prompt('Reason for cancelling ' + slot.subject_code + '?');
+    if (!reason?.trim()) return;
+    try {
+      await api.cancelSchedule(slot.id, reason.trim());
+      await loadSchedule();
+    } catch (err: any) {
+      alert(err.message || 'Could not cancel this timetable entry');
+    }
+  };
 
   const daySchedules = schedules.filter((s) => s.day_of_week === selectedDay);
 
@@ -86,6 +155,93 @@ export const TimetablePage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {editingSchedule && editDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <form onSubmit={saveSchedule} className="w-full max-w-xl space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">Reschedule {editingSchedule.subject_code}</h2>
+              <button type="button" onClick={() => setEditingSchedule(null)} aria-label="Close editor">
+                <X className="h-5 w-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-semibold text-slate-600">
+                Room
+                <select
+                  required
+                  value={editDraft.room_id}
+                  onChange={(event) => setEditDraft({ ...editDraft, room_id: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-slate-900"
+                >
+                  {rooms.filter((room) => room.is_bookable && room.is_active && !room.is_maintenance && room.verification_status === 'OFFICIAL_VERIFIED').map((room) => (
+                    <option key={room.id} value={room.id}>{room.building_name} · {room.room_number}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-slate-600">
+                Day
+                <select
+                  value={editDraft.day_of_week}
+                  onChange={(event) => setEditDraft({ ...editDraft, day_of_week: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-slate-900"
+                >
+                  {days.map((day, index) => <option key={day} value={index}>{day}</option>)}
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-slate-600">
+                Start
+                <input
+                  type="time"
+                  required
+                  value={editDraft.start_time}
+                  onChange={(event) => setEditDraft({ ...editDraft, start_time: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-slate-900"
+                />
+              </label>
+              <label className="text-xs font-semibold text-slate-600">
+                End
+                <input
+                  type="time"
+                  required
+                  value={editDraft.end_time}
+                  onChange={(event) => setEditDraft({ ...editDraft, end_time: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-slate-900"
+                />
+              </label>
+              <label className="text-xs font-semibold text-slate-600">
+                Subject code
+                <input
+                  required
+                  value={editDraft.subject_code}
+                  onChange={(event) => setEditDraft({ ...editDraft, subject_code: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-slate-900"
+                />
+              </label>
+              <label className="text-xs font-semibold text-slate-600">
+                Subject name
+                <input
+                  required
+                  value={editDraft.subject_name}
+                  onChange={(event) => setEditDraft({ ...editDraft, subject_name: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-slate-900"
+                />
+              </label>
+            </div>
+            <p className="text-xs text-slate-500">
+              Student group and assigned faculty remain unchanged. Affected students receive an update after saving.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditingSchedule(null)} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600">
+                Close
+              </button>
+              <button disabled={saving} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+                {saving ? 'Saving…' : 'Save schedule'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {viewMode === 'day' ? (
         <>
@@ -166,6 +322,16 @@ export const TimetablePage: React.FC = () => {
                       <div className="inline-block px-3 py-1.5 rounded-xl bg-white border border-slate-200 shadow-sm font-mono text-xs font-bold text-slate-900">
                         {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
                       </div>
+                      {user?.role === 'ADMIN' && (
+                        <div className="mt-2 flex justify-end gap-2">
+                          <button onClick={() => beginEdit(slot)} className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-semibold text-blue-700 ring-1 ring-blue-200">
+                            <Edit className="h-3 w-3" /> Reschedule
+                          </button>
+                          <button onClick={() => cancelSchedule(slot)} className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">
+                            <X className="h-3 w-3" /> Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

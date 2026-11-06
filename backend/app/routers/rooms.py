@@ -94,11 +94,16 @@ def query_rooms_availability(
     end_time_str: str = Query(..., alias="end_time"),
     building_id: Optional[int] = Query(None),
     floor_id: Optional[int] = Query(None),
-    required_capacity: Optional[int] = Query(None),
+    required_capacity: Optional[int] = Query(None, ge=1),
     room_type: Optional[str] = Query(None),
     facility_needed: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    purpose: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(["FACULTY", "ADMIN"])),
 ):
+    if booking_date < date.today():
+        raise HTTPException(status_code=422, detail="Availability can only be searched for today or a future date.")
+
     try:
         sh, sm = [int(x) for x in start_time_str.split(":")[:2]]
         eh, em = [int(x) for x in end_time_str.split(":")[:2]]
@@ -130,7 +135,8 @@ def query_rooms_availability(
             booking_date=booking_date,
             start_time=s_time,
             end_time=e_time,
-            expected_students=required_capacity
+            expected_students=required_capacity,
+            purpose=purpose,
         )
 
         # Check facility filter if specified

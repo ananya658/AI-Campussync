@@ -40,7 +40,7 @@ def format_report(r: IssueReport) -> dict:
 def submit_issue_report(
     report_in: IssueReportCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_role(["STUDENT"]))
 ):
     student = db.query(Student).filter(Student.user_id == current_user.id).first()
     if not student:
@@ -81,8 +81,17 @@ def submit_issue_report(
         user_id=current_user.id,
         title="Discrepancy Report Submitted",
         message=f"Your ticket regarding '{report_in.category.replace('_', ' ').title()}' is received and under administrative review.",
-        notification_type="REPORT_RESOLVED"
+        notification_type="REPORT_SUBMITTED"
     )
+    for (admin_id,) in db.query(User.id).filter(User.role == "ADMIN", User.is_active == True).all():
+        NotificationService.create_notification(
+            db=db,
+            user_id=admin_id,
+            title="New student discrepancy report",
+            message=f"{report_in.category.replace('_', ' ').title()} was reported and is awaiting review.",
+            notification_type="REPORT_SUBMITTED",
+            link_url="/admin/reports",
+        )
 
     return format_report(new_report)
 
@@ -94,9 +103,11 @@ def get_issue_reports(
 ):
     query = db.query(IssueReport)
 
-    # Students only see their own reports
+    # Students can track their reports; only administrators can review campus-wide reports.
     if current_user.role == "STUDENT":
         query = query.filter(IssueReport.reporter_user_id == current_user.id)
+    elif current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Only students and administrators can view discrepancy reports.")
 
     if status_filter:
         query = query.filter(IssueReport.status == status_filter)
@@ -114,6 +125,8 @@ def resolve_issue_report(
     report = db.query(IssueReport).filter(IssueReport.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+    if resolve_in.status not in {"RESOLVED", "REJECTED"}:
+        raise HTTPException(status_code=422, detail="Report status must be RESOLVED or REJECTED.")
 
     old_status = report.status
     report.status = resolve_in.status

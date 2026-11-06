@@ -88,13 +88,29 @@ export interface Building {
   floors: Floor[];
 }
 
+export interface Branch {
+  id: number;
+  code: string;
+  name: string;
+  total_capacity: number;
+  description?: string;
+}
+
+export interface AcademicSection {
+  id: number;
+  branch_id: number;
+  academic_year: number;
+  section_name: string;
+  student_count: number;
+}
+
 export interface Booking {
   id: number;
   booking_reference: string;
   room_id: number;
   user_id: number;
   title: string;
-  purpose: 'EXTRA_LECTURE' | 'MINOR_EXAM' | 'PRACTICAL_SESSION' | 'SEMINAR' | 'ACADEMIC_EVENT' | 'WORKSHOP' | 'OTHER';
+  purpose: 'EXTRA_LECTURE' | 'MINOR_EXAM' | 'MAJOR_EXAM' | 'PRACTICAL_EXAM' | 'PRACTICAL_SESSION' | 'SEMINAR' | 'ACADEMIC_EVENT' | 'WORKSHOP' | 'OTHER';
   date: string;
   start_time: string;
   end_time: string;
@@ -115,6 +131,14 @@ export interface Booking {
   room?: Room;
   booked_by_name?: string;
   booked_by_email?: string;
+}
+
+export interface BookingPrefill {
+  date: string;
+  start_time: string;
+  end_time: string;
+  expected_students: number;
+  purpose: Booking['purpose'];
 }
 
 export interface Schedule {
@@ -231,6 +255,7 @@ export interface AIRecommendationItem {
   explanation: string;
   facilities_matched: string[];
   capacity_difference: number;
+  effective_capacity?: number;
 }
 
 export interface AISearchResponse {
@@ -238,6 +263,7 @@ export interface AISearchResponse {
     date: string;
     start_time: string;
     end_time: string;
+    duration_minutes: number;
     required_capacity: number;
     building: string;
     room_type: string;
@@ -248,6 +274,8 @@ export interface AISearchResponse {
   alternative_rooms: AIRecommendationItem[];
   alternative_time_slots: Array<{
     room_number: string;
+    room_id: number;
+    building_id: number;
     building_name: string;
     date: string;
     start_time: string;

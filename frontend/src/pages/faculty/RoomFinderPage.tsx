@@ -1,23 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { Room } from '../../types';
+import { Building, BookingPrefill, Room } from '../../types';
 import { api } from '../../services/api';
 import { 
   Search, Calendar, Clock, Users, Building2, Layers, 
   Sparkles, CheckCircle2, AlertCircle, Wrench, ArrowRight 
 } from 'lucide-react';
 
+const getLocalDate = () => {
+  const current = new Date();
+  current.setMinutes(current.getMinutes() - current.getTimezoneOffset());
+  return current.toISOString().slice(0, 10);
+};
+
 interface RoomFinderPageProps {
-  onBookRoom: (room: Room) => void;
+  onBookRoom: (room: Room, booking?: BookingPrefill) => void;
 }
 
 export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) => {
-  const [bookingDate, setBookingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [bookingDate, setBookingDate] = useState(getLocalDate());
   const [startTime, setStartTime] = useState('11:00');
   const [endTime, setEndTime] = useState('12:00');
   const [capacity, setCapacity] = useState<number>(60);
   const [buildingId, setBuildingId] = useState<string>('');
+  const [buildings, setBuildings] = useState<Building[]>([]);
   const [roomType, setRoomType] = useState<string>('');
   const [facility, setFacility] = useState<string>('');
+  const [purpose, setPurpose] = useState('EXTRA_LECTURE');
 
   const [results, setResults] = useState<Array<{ room: Room; is_available: boolean; status: string; conflict_reason?: string }>>([]);
   const [loading, setLoading] = useState(false);
@@ -34,6 +42,7 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
         building_id: buildingId ? parseInt(buildingId) : undefined,
         room_type: roomType || undefined,
         facility_needed: facility || undefined,
+        purpose,
       });
       setResults(data);
     } catch (err: any) {
@@ -44,6 +53,7 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
   };
 
   useEffect(() => {
+    api.getBuildings().then(setBuildings).catch((err) => console.error('Failed to load buildings', err));
     handleSearch();
   }, []);
 
@@ -60,7 +70,7 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
 
       {/* Filter Form Card */}
       <form onSubmit={handleSearch} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
           {/* Date */}
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
@@ -129,8 +139,9 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
               className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-800"
             >
               <option value="">Any Campus Building</option>
-              <option value="1">IET Building</option>
-              <option value="2">Deeksha Bhawan</option>
+              {buildings.map((building) => (
+                <option key={building.id} value={building.id}>{building.name}</option>
+              ))}
             </select>
           </div>
 
@@ -150,6 +161,26 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
               <option value="SEMINAR_HALL">Seminar Hall</option>
             </select>
           </div>
+        </div>
+
+        <div className="max-w-xs">
+          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            Booking Purpose
+          </label>
+          <select
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-800"
+          >
+            <option value="EXTRA_LECTURE">Extra lecture</option>
+            <option value="MINOR_EXAM">Minor examination</option>
+            <option value="MAJOR_EXAM">Major examination</option>
+            <option value="PRACTICAL_EXAM">Practical examination</option>
+            <option value="PRACTICAL_SESSION">Practical session</option>
+            <option value="SEMINAR">Seminar</option>
+            <option value="WORKSHOP">Workshop</option>
+            <option value="ACADEMIC_EVENT">Academic event</option>
+          </select>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
@@ -219,7 +250,11 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
               {/* Capacity and Type */}
               <div className="flex items-center gap-3 text-xs text-slate-600 pt-1">
                 <span className="flex items-center gap-1 font-semibold text-slate-900">
-                  <Users className="w-3.5 h-3.5 text-blue-600" /> {room.capacity} seats
+                  <Users className="w-3.5 h-3.5 text-blue-600" /> {
+                    ['MINOR_EXAM', 'MAJOR_EXAM', 'PRACTICAL_EXAM'].includes(purpose)
+                      ? (room.exam_capacity ?? Math.floor(room.capacity * 0.5))
+                      : room.capacity
+                  } seats
                 </span>
                 <span>•</span>
                 <span className="font-medium">{room.room_type.replace('_', ' ')}</span>
@@ -252,7 +287,13 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
 
               {is_available ? (
                 <button
-                  onClick={() => onBookRoom(room)}
+                  onClick={() => onBookRoom(room, {
+                    date: bookingDate,
+                    start_time: startTime,
+                    end_time: endTime,
+                    expected_students: capacity,
+                    purpose: purpose as BookingPrefill['purpose'],
+                  })}
                   className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all"
                 >
                   Book Room <ArrowRight className="w-3.5 h-3.5" />
