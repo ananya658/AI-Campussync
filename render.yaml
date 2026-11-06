@@ -20,3 +20,4 @@ services:
         value: 10080
       - key: BACKEND_PORT
         value: 8000
+
