@@ -257,10 +257,13 @@ def get_bookings(
 
 @router.get("/split-plan")
 def get_split_plan(
-    booking_date: str = Query(..., description="Target exam date (YYYY-MM-DD)"),
-    start_time: str = Query(..., description="Exam start time (HH:MM)"),
-    end_time: str = Query(..., description="Exam end time (HH:MM)"),
-    total_students: int = Query(75, description="Total candidates in section"),
+    booking_date: Optional[str] = Query(None, description="Target exam date (YYYY-MM-DD)"),
+    date: Optional[str] = Query(None, description="Target exam date alias (YYYY-MM-DD)"),
+    start_time: str = Query("09:00", description="Exam start time (HH:MM)"),
+    end_time: str = Query("11:00", description="Exam end time (HH:MM)"),
+    total_students: Optional[int] = Query(None, description="Total candidates in section"),
+    total_candidates: Optional[int] = Query(None, description="Total candidates alias"),
+    building_id: Optional[int] = Query(None, description="Building ID preference"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(["FACULTY", "ADMIN"]))
 ):
@@ -270,8 +273,11 @@ def get_split_plan(
     - Deeksha Bhawan long room pairs (LH01 + LH02, LH08 + LH09)
     - Adjacent IET classrooms with auxiliary seats
     """
+    target_date_str = booking_date or date or str(date.today())
+    target_count = total_students or total_candidates or 75
+
     try:
-        b_date = datetime.strptime(booking_date, "%Y-%m-%d").date()
+        b_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     except Exception:
         b_date = date.today()
 
@@ -296,13 +302,13 @@ def get_split_plan(
         booking_date=b_date,
         start_time=s_time,
         end_time=e_time,
-        total_students=total_students
+        total_students=target_count
     )
     return {
         "date": b_date,
         "start_time": s_time.strftime("%H:%M"),
         "end_time": e_time.strftime("%H:%M"),
-        "total_students": total_students,
+        "total_students": target_count,
         "recommendations": candidates
     }
 
@@ -540,10 +546,13 @@ def update_booking_status(
 
 @router.get("/split-plan")
 def get_split_plan(
-    booking_date: str = Query(..., description="Target exam date (YYYY-MM-DD)"),
-    start_time: str = Query(..., description="Exam start time (HH:MM)"),
-    end_time: str = Query(..., description="Exam end time (HH:MM)"),
-    total_students: int = Query(75, description="Total candidates in section"),
+    booking_date: Optional[str] = Query(None, description="Target exam date (YYYY-MM-DD)"),
+    date: Optional[str] = Query(None, description="Target exam date alias (YYYY-MM-DD)"),
+    start_time: str = Query("09:00", description="Exam start time (HH:MM)"),
+    end_time: str = Query("11:00", description="Exam end time (HH:MM)"),
+    total_students: Optional[int] = Query(None, description="Total candidates in section"),
+    total_candidates: Optional[int] = Query(None, description="Total candidates alias"),
+    building_id: Optional[int] = Query(None, description="Building ID preference"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(["FACULTY", "ADMIN"]))
 ):
@@ -553,8 +562,11 @@ def get_split_plan(
     - Deeksha Bhawan long room pairs (LH01 + LH02, LH08 + LH09)
     - Adjacent IET classrooms with auxiliary seats
     """
+    target_date_str = booking_date or date or str(date.today())
+    target_count = total_students or total_candidates or 75
+
     try:
-        b_date = datetime.strptime(booking_date, "%Y-%m-%d").date()
+        b_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     except Exception:
         b_date = date.today()
 
@@ -579,13 +591,13 @@ def get_split_plan(
         booking_date=b_date,
         start_time=s_time,
         end_time=e_time,
-        total_students=total_students
+        total_students=target_count
     )
     return {
         "date": b_date,
         "start_time": s_time.strftime("%H:%M"),
         "end_time": e_time.strftime("%H:%M"),
-        "total_students": total_students,
+        "total_students": target_count,
         "recommendations": candidates
     }
 
