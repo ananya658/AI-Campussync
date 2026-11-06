@@ -12,6 +12,10 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def clean_test_bookings():
+    # The CI database is fresh, and TestClient does not run the app lifespan
+    # unless used as a context manager. Seed the isolated test database here
+    # so these integration tests have their required users, rooms, and settings.
+    seed_database()
     db = next(get_db())
     db.query(Booking).filter(
         Booking.title.in_([
