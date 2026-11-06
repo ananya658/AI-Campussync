@@ -19,4 +19,5 @@ frontend/dist/
 *.log
 .env
 .DS_Store
+*test_neon*.py
 

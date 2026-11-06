@@ -7,13 +7,20 @@ db_url = settings.DATABASE_URL
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-connect_args = {}
+engine_kwargs = {}
 
 if db_url.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # Production / Neon PostgreSQL settings:
+    # pool_pre_ping tests connection liveness before checkout (essential for Neon idle compute scale-down)
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_recycle"] = 300
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
 
 try:
-    engine = create_engine(db_url, connect_args=connect_args)
+    engine = create_engine(db_url, **engine_kwargs)
     # Test connection
     with engine.connect() as conn:
         pass
