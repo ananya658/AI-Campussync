@@ -60,3 +60,4 @@ async def websocket_notifications(websocket: WebSocket, user_id: int):
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
+

@@ -277,3 +277,4 @@ export const BuildingsRoomsPage: React.FC = () => {
     </div>
   );
 };
+

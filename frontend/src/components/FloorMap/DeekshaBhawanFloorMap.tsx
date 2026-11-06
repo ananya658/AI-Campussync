@@ -267,3 +267,4 @@ export const DeekshaBhawanFloorMap: React.FC<DeekshaBhawanFloorMapProps> = ({
     </div>
   );
 };
+

@@ -26,3 +26,4 @@ def get_audit_logs(
 
     logs = query.order_by(desc(AuditLog.created_at)).offset(offset).limit(limit).all()
     return logs
+

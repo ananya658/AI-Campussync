@@ -290,3 +290,4 @@ def update_booking_status(
     )
 
     return format_booking(b)
+

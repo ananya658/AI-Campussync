@@ -196,3 +196,4 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate }
     </div>
   );
 };
+

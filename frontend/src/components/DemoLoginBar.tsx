@@ -57,3 +57,4 @@ export const DemoLoginBar: React.FC<DemoLoginBarProps> = ({ onSuccess }) => {
     </div>
   );
 };
+

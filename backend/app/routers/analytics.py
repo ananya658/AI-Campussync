@@ -112,3 +112,4 @@ def get_analytics_dashboard(
         "peak_booking_hours": peak_hours_list,
         "building_wise_utilization": building_util
     }
+

@@ -118,3 +118,4 @@ export const ExamSchedulePage: React.FC = () => {
     </div>
   );
 };
+

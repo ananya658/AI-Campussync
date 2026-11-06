@@ -156,3 +156,4 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onExplor
     </div>
   );
 };
+

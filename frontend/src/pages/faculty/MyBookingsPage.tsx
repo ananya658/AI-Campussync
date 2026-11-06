@@ -187,3 +187,4 @@ export const MyBookingsPage: React.FC<MyBookingsPageProps> = ({ onNewBookingClic
     </div>
   );
 };
+

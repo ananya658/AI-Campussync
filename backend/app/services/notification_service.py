@@ -98,3 +98,4 @@ class NotificationService:
         if count > 0:
             db.commit()
         return count
+

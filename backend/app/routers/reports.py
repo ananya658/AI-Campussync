@@ -145,3 +145,4 @@ def resolve_issue_report(
     )
 
     return format_report(report)
+

@@ -177,3 +177,4 @@ export const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ onNavigate }
     </div>
   );
 };
+

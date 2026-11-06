@@ -36,3 +36,4 @@ def get_intelligent_recommendation(
     current_user: User = Depends(get_current_user)
 ):
     return natural_language_room_search(request, db, current_user)
+

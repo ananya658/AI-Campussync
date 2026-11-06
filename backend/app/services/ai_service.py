@@ -359,3 +359,4 @@ class AIService:
             "total_matches": len(scored_recommendations),
             "raw_ai_explanation": raw_summary
         }
+

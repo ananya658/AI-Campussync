@@ -36,3 +36,4 @@ class AuditService:
         db.commit()
         db.refresh(audit_entry)
         return audit_entry
+

@@ -232,3 +232,4 @@ def update_announcement(
     )
 
     return format_announcement(a)
+

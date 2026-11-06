@@ -199,3 +199,4 @@ def update_schedule(
     )
 
     return format_schedule(sched)
+

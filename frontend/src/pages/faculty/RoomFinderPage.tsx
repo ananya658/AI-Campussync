@@ -267,3 +267,4 @@ export const RoomFinderPage: React.FC<RoomFinderPageProps> = ({ onBookRoom }) =>
     </div>
   );
 };
+

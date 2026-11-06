@@ -237,3 +237,4 @@ def verify_blueprint_discrepancy_room(
     )
 
     return format_room(r)
+

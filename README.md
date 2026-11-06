@@ -235,3 +235,4 @@ PYTHONPATH=. ./backend/venv/bin/pytest backend/tests/test_campus_sync.py -v
 - **Hackathon**: BUILD WITH AI: DevOps 2026
 - **Organization**: Google Developer Groups (GDG) on Campus
 - **Institution**: Deen Dayal Upadhyaya Gorakhpur University (DDUGU), Gorakhpur, UP, India.
+

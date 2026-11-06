@@ -215,3 +215,4 @@ export const FloorMapContainer: React.FC<FloorMapContainerProps> = ({ onBookRoom
     </div>
   );
 };
+

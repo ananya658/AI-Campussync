@@ -260,3 +260,4 @@ export const AIAssistantPage: React.FC<AIAssistantPageProps> = ({ onBookRoom }) 
     </div>
   );
 };
+
